@@ -118,6 +118,8 @@ async function loadChartIntoEditor(song) {
   const chart = await resolveChart(song);
   editorChart = JSON.parse(JSON.stringify(chart));
   ensureTimelineRangeForChart(editorChart);
+  const inp = document.getElementById('timeline-max-ms');
+  if (inp) inp.value = String(editorState.timelineMaxMs);
   redrawTimelineEditor();
 }
 
@@ -136,7 +138,7 @@ function validateChart(chart) {
 }
 
 
-let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 60000 };
+let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 60000, manualTimelineMs: null };
 
 function getEditorChartObj() {
   if (!editorChart || typeof editorChart !== 'object') editorChart = { difficulty: 'Custom', notes: [] };
@@ -150,8 +152,23 @@ function ensureTimelineRangeForChart(chart) {
   for (const n of chart.notes || []) {
     maxMs = Math.max(maxMs, Number(n.timeMs) || 0, Number(n.endTimeMs) || 0);
   }
-  const target = Math.max(60000, Math.ceil((maxMs + 5000) / 1000) * 1000);
-  editorState.timelineMaxMs = target;
+  const autoTarget = Math.max(60000, Math.ceil((maxMs + 5000) / 1000) * 1000);
+  const manual = Number(editorState.manualTimelineMs || 0);
+  editorState.timelineMaxMs = Math.max(autoTarget, manual);
+  const inp = document.getElementById('timeline-max-ms');
+  if (inp) inp.value = String(editorState.timelineMaxMs);
+}
+
+function applyManualTimelineRange() {
+  const inp = document.getElementById('timeline-max-ms');
+  const v = Number(inp?.value || 0);
+  if (!Number.isFinite(v) || v < 1000) {
+    alert('타임라인 길이는 1000ms 이상 숫자여야 합니다.');
+    return;
+  }
+  editorState.manualTimelineMs = v;
+  editorState.timelineMaxMs = Math.max(editorState.timelineMaxMs, v);
+  redrawTimelineEditor();
 }
 
 function getEditorBpm() {
@@ -521,3 +538,5 @@ document.getElementById('clear-selected-note').onclick = () => {
 
 document.getElementById('to-chart-dev').onclick = () => showScreen('chartDev');
 document.getElementById('back-from-chart-dev').onclick = () => showScreen('title');
+
+document.getElementById('timeline-apply').onclick = () => applyManualTimelineRange();
