@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>4K Rhythm Game</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <section id="title-screen" class="screen active">
+      <h1>4K Rhythm Game</h1>
+      <button id="to-song-select">곡 선택</button>
+      <button id="to-settings">설정</button>
+    </section>
+
+    <section id="song-select-screen" class="screen">
+      <h2>곡 선택</h2>
+      <div id="song-list"></div>
+      <button id="back-from-song">뒤로</button>
+    </section>
+
+    <section id="settings-screen" class="screen">
+      <h2>설정</h2>
+      <label>
+        음악 보정(ms)
+        <input type="number" id="offset-ms" step="1" />
+      </label>
+      <h3>키 설정</h3>
+      <div id="keybind-list"></div>
+      <button id="save-settings">저장</button>
+      <button id="back-from-settings">뒤로</button>
+    </section>
+
+    <section id="game-screen" class="screen">
+      <div id="hud">
+        <span id="song-title"></span>
+        <span>점수: <b id="score">0</b></span>
+        <span>콤보: <b id="combo">0</b></span>
+        <span id="judge-text">READY</span>
+      </div>
+      <div id="lanes"></div>
+      <button id="exit-game">종료</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
