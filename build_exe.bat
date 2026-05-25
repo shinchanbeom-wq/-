@@ -17,5 +17,5 @@ pyinstaller --noconfirm --onefile --windowed --name Rhythm4K ^
   launcher.py
 
 echo.
-echo 빌드 완료: dist\Rhythm4K.exe
+echo Done: dist\Rhythm4K.exe
 pause

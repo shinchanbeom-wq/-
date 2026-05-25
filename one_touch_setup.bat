@@ -1,32 +1,33 @@
 @echo off
-setlocal
+setlocal enabledelayedexpansion
 
-REM 1) Build app EXE
+echo [1/3] Building app EXE...
 call build_exe.bat
 if errorlevel 1 (
-  echo [ERROR] EXE 빌드 실패
+  echo [ERROR] EXE build failed.
   exit /b 1
 )
 
-REM 2) Ensure Inno Setup exists (install via winget if missing)
-set ISCC_EXE=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+echo [2/3] Checking Inno Setup...
+set "ISCC_EXE=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if not exist "%ISCC_EXE%" (
-  echo Inno Setup 6 미설치. winget으로 자동 설치를 시도합니다...
+  echo Inno Setup 6 not found. Trying winget install...
   winget install --id JRSoftware.InnoSetup -e --accept-package-agreements --accept-source-agreements
   if errorlevel 1 (
-    echo [ERROR] Inno Setup 자동 설치 실패. 수동 설치 후 다시 실행하세요.
+    echo [ERROR] Automatic Inno Setup install failed.
+    echo Please install Inno Setup 6 manually: https://jrsoftware.org/isdl.php
     exit /b 1
   )
 )
 
-REM 3) Build installer EXE
+echo [3/3] Building setup installer...
 call build_installer.bat
 if errorlevel 1 (
-  echo [ERROR] 설치파일 빌드 실패
+  echo [ERROR] Installer build failed.
   exit /b 1
 )
 
 echo.
-echo [OK] 원터치 셋업 완료
-for %%f in ("dist\Rhythm4K-Setup.exe") do echo 생성 파일: %%~ff
+echo [OK] One-touch setup completed.
+for %%f in ("dist\Rhythm4K-Setup.exe") do echo Output: %%~ff
 pause
