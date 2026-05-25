@@ -143,6 +143,11 @@ function getEditorChartObj() {
   return editorChart;
 }
 
+function getEditorBpm() {
+  if (selectedSong && Number(selectedSong.bpm) > 0) return Number(selectedSong.bpm);
+  return 120;
+}
+
 function redrawTimelineEditor() {
   const host = document.getElementById('timeline-editor');
   if (!host) return;
@@ -154,9 +159,12 @@ function redrawTimelineEditor() {
     const laneEl = document.createElement('div');
     laneEl.className = 'tl-lane';
     laneEl.dataset.lane = lane;
-    laneEl.onclick = (e) => {
-      if (e.target !== laneEl) return;
-      const rect = laneEl.getBoundingClientRect();
+    const inner = document.createElement('div');
+    inner.className = 'tl-lane-inner';
+    const laneHeight = inner.offsetHeight || 1600;
+    inner.onclick = (e) => {
+      if (e.target !== inner) return;
+      const rect = inner.getBoundingClientRect();
       const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
       const timeMs = Math.round((y / rect.height) * editorState.timelineMaxMs);
       if (editorState.mode === 'hold') {
@@ -168,23 +176,40 @@ function redrawTimelineEditor() {
       redrawTimelineEditor();
     };
 
+    const bpm = getEditorBpm();
+    const beatMs = 60000 / bpm;
+    for (let t = 0; t <= editorState.timelineMaxMs; t += beatMs) {
+      const y = (t / editorState.timelineMaxMs) * 100;
+      const line = document.createElement('div');
+      line.className = 'tl-beat';
+      line.style.top = `${y}%`;
+      inner.appendChild(line);
+      if (lane === 3) {
+        const lbl = document.createElement('div');
+        lbl.className = 'tl-beat-label';
+        lbl.style.top = `${y}%`;
+        lbl.textContent = `${Math.round(t)}ms`;
+        inner.appendChild(lbl);
+      }
+    }
+
     chart.notes.forEach((n, idx) => {
       if (n.lane !== lane) return;
-      const top = (n.timeMs / editorState.timelineMaxMs) * laneEl.clientHeight;
       if (typeof n.endTimeMs === 'number' && n.endTimeMs > n.timeMs) {
         const hold = document.createElement('div');
         hold.className = 'tl-hold' + (editorState.selectedNoteId === idx ? ' selected' : '');
         hold.style.top = `${(n.timeMs / editorState.timelineMaxMs) * 100}%`;
         hold.style.height = `${((n.endTimeMs - n.timeMs) / editorState.timelineMaxMs) * 100}%`;
         hold.onclick = (ev) => { ev.stopPropagation(); editorState.selectedNoteId = idx; redrawTimelineEditor(); };
-        laneEl.appendChild(hold);
+        inner.appendChild(hold);
       }
       const note = document.createElement('div');
       note.className = 'tl-note' + (editorState.selectedNoteId === idx ? ' selected' : '');
       note.style.top = `${(n.timeMs / editorState.timelineMaxMs) * 100}%`;
       note.onclick = (ev) => { ev.stopPropagation(); editorState.selectedNoteId = idx; redrawTimelineEditor(); };
-      laneEl.appendChild(note);
+      inner.appendChild(note);
     });
+    laneEl.appendChild(inner);
     host.appendChild(laneEl);
   }
 }
