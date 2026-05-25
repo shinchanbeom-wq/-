@@ -2,6 +2,7 @@ const screens = {
   title: document.getElementById('title-screen'),
   songSelect: document.getElementById('song-select-screen'),
   settings: document.getElementById('settings-screen'),
+  chartDev: document.getElementById('chart-dev-screen'),
   game: document.getElementById('game-screen')
 };
 
@@ -63,9 +64,19 @@ async function loadSongList() {
   songs.forEach(song => {
     const btn = document.createElement('button');
     btn.textContent = `${song.title} - ${song.artist}`;
-    btn.onclick = () => { selectedSong = song; loadChartIntoEditor(song); };
+    btn.onclick = () => startGame(song);
     list.appendChild(btn);
   });
+
+  const songSel = document.getElementById('chart-dev-song-select');
+  songSel.innerHTML = '';
+  songs.forEach(song => {
+    const opt = document.createElement('option');
+    opt.value = song.id;
+    opt.textContent = `${song.title} - ${song.artist}`;
+    songSel.appendChild(opt);
+  });
+
 }
 
 function pulseLane(laneIndex) {
@@ -435,12 +446,16 @@ window.addEventListener('resize', refreshLayout);
 refreshLayout();
 
 
-document.getElementById('load-chart-editor').onclick = async () => {
-  if (!selectedSong) { alert('먼저 곡을 선택하세요.'); return; }
+document.getElementById('chart-dev-load').onclick = async () => {
+  const id = document.getElementById('chart-dev-song-select').value;
+  selectedSong = songs.find(s => s.id === id) || null;
+  if (!selectedSong) { alert('곡을 선택하세요.'); return; }
   await loadChartIntoEditor(selectedSong);
 };
-document.getElementById('save-chart-editor').onclick = () => {
-  if (!selectedSong) { alert('먼저 곡을 선택하세요.'); return; }
+document.getElementById('chart-dev-save').onclick = () => {
+  const id = document.getElementById('chart-dev-song-select').value;
+  selectedSong = songs.find(s => s.id === id) || null;
+  if (!selectedSong) { alert('곡을 선택하세요.'); return; }
   const chart = readEditorChart();
   if (!chart) return;
   const err = validateChart(chart);
@@ -448,15 +463,16 @@ document.getElementById('save-chart-editor').onclick = () => {
   localStorage.setItem(getCustomChartKey(selectedSong.id), JSON.stringify(chart));
   alert('커스텀 채보 저장 완료');
 };
-document.getElementById('test-chart-editor').onclick = () => {
-  if (!selectedSong) { alert('먼저 곡을 선택하세요.'); return; }
+document.getElementById('chart-dev-test').onclick = () => {
+  const id = document.getElementById('chart-dev-song-select').value;
+  selectedSong = songs.find(s => s.id === id) || null;
+  if (!selectedSong) { alert('곡을 선택하세요.'); return; }
   const chart = readEditorChart();
   if (!chart) return;
   const err = validateChart(chart);
   if (err) { alert(err); return; }
   startGame(selectedSong, chart);
 };
-
 document.getElementById('add-tap-note').onclick = () => { editorState.mode = 'tap'; };
 document.getElementById('add-hold-note').onclick = () => { editorState.mode = 'hold'; };
 document.getElementById('clear-selected-note').onclick = () => {
@@ -469,3 +485,6 @@ document.getElementById('clear-selected-note').onclick = () => {
   redrawTimelineEditor();
 };
 document.getElementById('chart-json').addEventListener('input', () => { redrawTimelineEditor(); });
+
+document.getElementById('to-chart-dev').onclick = () => showScreen('chartDev');
+document.getElementById('back-from-chart-dev').onclick = () => showScreen('title');

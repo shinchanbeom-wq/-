@@ -12,19 +12,26 @@
       <h1>4K Rhythm Game</h1>
       <button id="to-song-select">곡 선택</button>
       <button id="to-settings">설정</button>
+      <button id="to-chart-dev">채보 개발창</button>
     </section>
 
     <section id="song-select-screen" class="screen">
       <h2>곡 선택</h2>
       <div id="song-list"></div>
 
+      <button id="back-from-song">뒤로</button>
+    </section>
+
+    
+    <section id="chart-dev-screen" class="screen">
+      <h2>채보 개발창</h2>
+      <div class="editor-actions">
+        <select id="chart-dev-song-select"></select>
+        <button id="chart-dev-load">불러오기</button>
+        <button id="chart-dev-save">저장</button>
+        <button id="chart-dev-test">바로 테스트</button>
+      </div>
       <div id="chart-editor">
-        <h3>인게임 채보 커스텀/테스트</h3>
-        <div class="editor-actions">
-          <button id="load-chart-editor">선택곡 채보 불러오기</button>
-          <button id="save-chart-editor">선택곡 채보 저장</button>
-          <button id="test-chart-editor">바로 테스트 시작</button>
-        </div>
         <small>형식: tap({"timeMs":1000,"lane":0}), hold({"timeMs":1200,"lane":1,"endTimeMs":2000})</small>
         <div id="visual-editor">
           <div class="editor-actions">
@@ -36,8 +43,7 @@
         </div>
         <textarea id="chart-json" spellcheck="false"></textarea>
       </div>
-
-      <button id="back-from-song">뒤로</button>
+      <button id="back-from-chart-dev">뒤로</button>
     </section>
 
     <section id="settings-screen" class="screen">
