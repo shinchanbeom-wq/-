@@ -6,6 +6,7 @@ const screens = {
 };
 
 const DEFAULT_SETTINGS = { offsetMs: 0, keybinds: ['d', 'f', 'j', 'k'] };
+const JUDGE_EFFECT_CLASS = { '완벽':'hit-perfect', '좋음':'hit-good', '나쁨':'hit-bad', '최악':'hit-worst' };
 const JUDGE_WINDOWS = [
   { name: '완벽', ms: 40, score: 1000 },
   { name: '좋음', ms: 80, score: 700 },
@@ -69,6 +70,30 @@ async function loadSongList() {
     btn.onclick = () => startGame(song);
     list.appendChild(btn);
   });
+}
+
+
+function pulseLane(laneIndex) {
+  const laneEl = document.querySelector(`.lane[data-lane="${laneIndex}"]`);
+  if (!laneEl) return;
+  laneEl.classList.remove('flash');
+  void laneEl.offsetWidth;
+  laneEl.classList.add('flash');
+  setTimeout(() => laneEl.classList.remove('flash'), 90);
+}
+
+function spawnHitBurst(laneIndex, judgeName) {
+  const laneEl = document.querySelector(`.lane[data-lane="${laneIndex}"]`);
+  if (!laneEl) return;
+  const burst = document.createElement('div');
+  burst.className = `hit-burst ${JUDGE_EFFECT_CLASS[judgeName] || 'hit-good'}`;
+  laneEl.appendChild(burst);
+  setTimeout(() => burst.remove(), 320);
+}
+
+function refreshLayout() {
+  const lanes = document.getElementById('lanes');
+  lanes.style.height = `${Math.max(280, window.innerHeight - 180)}px`;
 }
 
 function setupLanes() {
@@ -144,6 +169,8 @@ function judgeHit(lane) {
     target.hit = true;
     gameState.score += result.score;
     gameState.combo += 1;
+    pulseLane(lane);
+    spawnHitBurst(lane, result.name);
     updateHUD(result.name);
   }
 }
@@ -190,7 +217,10 @@ function renderLoop() {
 window.addEventListener('keydown', (e) => {
   if (!gameState) return;
   const lane = settings.keybinds.indexOf(e.key.toLowerCase());
-  if (lane >= 0) judgeHit(lane);
+  if (lane >= 0) {
+    pulseLane(lane);
+    judgeHit(lane);
+  }
 });
 
 document.getElementById('to-song-select').onclick = () => showScreen('songSelect');
@@ -208,3 +238,6 @@ loadSongList().catch(err => {
   console.error(err);
   alert('곡 데이터를 불러오지 못했습니다. songs/index.json을 확인하세요.');
 });
+
+window.addEventListener('resize', refreshLayout);
+refreshLayout();
