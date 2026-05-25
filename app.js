@@ -117,6 +117,7 @@ async function resolveChart(song) {
 async function loadChartIntoEditor(song) {
   const chart = await resolveChart(song);
   editorChart = JSON.parse(JSON.stringify(chart));
+  ensureTimelineRangeForChart(editorChart);
   redrawTimelineEditor();
 }
 
@@ -135,12 +136,22 @@ function validateChart(chart) {
 }
 
 
-let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 8000 };
+let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 60000 };
 
 function getEditorChartObj() {
   if (!editorChart || typeof editorChart !== 'object') editorChart = { difficulty: 'Custom', notes: [] };
   if (!Array.isArray(editorChart.notes)) editorChart.notes = [];
   return editorChart;
+}
+
+
+function ensureTimelineRangeForChart(chart) {
+  let maxMs = 0;
+  for (const n of chart.notes || []) {
+    maxMs = Math.max(maxMs, Number(n.timeMs) || 0, Number(n.endTimeMs) || 0);
+  }
+  const target = Math.max(60000, Math.ceil((maxMs + 5000) / 1000) * 1000);
+  editorState.timelineMaxMs = target;
 }
 
 function getEditorBpm() {
@@ -168,11 +179,12 @@ function redrawTimelineEditor() {
       const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
       const timeMs = Math.round((y / rect.height) * editorState.timelineMaxMs);
       if (editorState.mode === 'hold') {
-        chart.notes.push({ timeMs, lane, endTimeMs: Math.min(editorState.timelineMaxMs, timeMs + 1000) });
+        chart.notes.push({ timeMs, lane, endTimeMs: timeMs + 1000 });
       } else {
         chart.notes.push({ timeMs, lane });
       }
       chart.notes.sort((a,b)=>a.timeMs-b.timeMs);
+      ensureTimelineRangeForChart(chart);
       redrawTimelineEditor();
     };
 
@@ -479,6 +491,7 @@ document.getElementById('chart-dev-save').onclick = () => {
   if (!selectedSong) { alert('곡을 선택하세요.'); return; }
   const chart = readEditorChart();
   if (!chart) return;
+  ensureTimelineRangeForChart(chart);
   const err = validateChart(chart);
   if (err) { alert(err); return; }
   localStorage.setItem(getCustomChartKey(selectedSong.id), JSON.stringify(chart));
@@ -490,6 +503,7 @@ document.getElementById('chart-dev-test').onclick = () => {
   if (!selectedSong) { alert('곡을 선택하세요.'); return; }
   const chart = readEditorChart();
   if (!chart) return;
+  ensureTimelineRangeForChart(chart);
   const err = validateChart(chart);
   if (err) { alert(err); return; }
   startGame(selectedSong, chart);
