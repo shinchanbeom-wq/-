@@ -21,6 +21,7 @@ let settings = loadSettings();
 let songs = [];
 let gameState = null;
 let selectedSong = null;
+let editorChart = { difficulty: "Custom", notes: [] };
 
 function showScreen(name) {
   Object.values(screens).forEach(s => s.classList.remove('active'));
@@ -114,16 +115,13 @@ async function resolveChart(song) {
 }
 
 async function loadChartIntoEditor(song) {
-  const area = document.getElementById('chart-json');
   const chart = await resolveChart(song);
-  area.value = JSON.stringify(chart, null, 2);
+  editorChart = JSON.parse(JSON.stringify(chart));
   redrawTimelineEditor();
 }
 
 function readEditorChart() {
-  const area = document.getElementById('chart-json');
-  try { return JSON.parse(area.value); }
-  catch { alert('채보 JSON 형식 오류'); return null; }
+  return JSON.parse(JSON.stringify(editorChart));
 }
 
 function validateChart(chart) {
@@ -140,10 +138,9 @@ function validateChart(chart) {
 let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 8000 };
 
 function getEditorChartObj() {
-  const c = readEditorChart();
-  if (!c) return null;
-  if (!Array.isArray(c.notes)) c.notes = [];
-  return c;
+  if (!editorChart || typeof editorChart !== 'object') editorChart = { difficulty: 'Custom', notes: [] };
+  if (!Array.isArray(editorChart.notes)) editorChart.notes = [];
+  return editorChart;
 }
 
 function redrawTimelineEditor() {
@@ -168,7 +165,6 @@ function redrawTimelineEditor() {
         chart.notes.push({ timeMs, lane });
       }
       chart.notes.sort((a,b)=>a.timeMs-b.timeMs);
-      document.getElementById('chart-json').value = JSON.stringify(chart, null, 2);
       redrawTimelineEditor();
     };
 
@@ -481,10 +477,8 @@ document.getElementById('clear-selected-note').onclick = () => {
   if (editorState.selectedNoteId == null) return;
   chart.notes.splice(editorState.selectedNoteId, 1);
   editorState.selectedNoteId = null;
-  document.getElementById('chart-json').value = JSON.stringify(chart, null, 2);
   redrawTimelineEditor();
 };
-document.getElementById('chart-json').addEventListener('input', () => { redrawTimelineEditor(); });
 
 document.getElementById('to-chart-dev').onclick = () => showScreen('chartDev');
 document.getElementById('back-from-chart-dev').onclick = () => showScreen('title');
