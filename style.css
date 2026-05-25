@@ -1,0 +1,14 @@
+:root { --bg:#111; --fg:#f6f6f6; --accent:#49b3ff; }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:Arial,sans-serif; }
+#app { max-width:900px; margin:0 auto; padding:16px; }
+.screen { display:none; }
+.screen.active { display:block; }
+button { margin:6px; padding:8px 14px; }
+#song-list button { display:block; width:100%; text-align:left; }
+#hud { display:flex; justify-content:space-between; margin-bottom:10px; }
+#lanes { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; height:500px; background:#222; padding:8px; }
+.lane { position:relative; border:1px solid #555; overflow:hidden; }
+.judge-line { position:absolute; bottom:40px; left:0; right:0; height:4px; background:var(--accent); }
+.note { position:absolute; left:20%; width:60%; height:16px; background:#ffd166; border-radius:4px; }
+.key-row { margin:6px 0; }
+#judge-text { min-width:80px; text-align:right; color:var(--accent); font-weight:bold; }
