@@ -186,6 +186,24 @@ function onLanePress(lane) {
   updateHUD(result.name);
 }
 
+function completeHoldNote(note, lane, judgeName) {
+  note.released = true;
+  note.judged = true;
+  note.holding = false;
+  gameState.activeHolds.delete(lane);
+  if (judgeName === '놓침') {
+    gameState.combo = 0;
+  } else {
+    const w = JUDGE_WINDOWS.find(x => x.name === judgeName);
+    if (w) {
+      gameState.score += w.score;
+      gameState.combo += 1;
+    }
+  }
+  spawnHitBurst(lane, judgeName);
+  updateHUD(judgeName);
+}
+
 function onLaneRelease(lane) {
   if (!gameState) return;
   const noteId = gameState.activeHolds.get(lane);
@@ -194,24 +212,12 @@ function onLaneRelease(lane) {
   if (!note || note.type !== 'hold' || note.released) return;
 
   const t = getSongTimeMs();
-  const deltaEnd = Math.abs((note.endTimeMs ?? note.timeMs) - t);
+  const endMs = note.endTimeMs ?? note.timeMs;
+  const deltaEnd = Math.abs(endMs - t);
   const result = judgeFromDelta(deltaEnd);
 
-  note.released = true;
-  note.judged = true;
-  note.holding = false;
-  gameState.activeHolds.delete(lane);
-
-  if (result) {
-    gameState.score += result.score;
-    gameState.combo += 1;
-    spawnHitBurst(lane, result.name);
-    updateHUD(result.name);
-  } else {
-    gameState.combo = 0;
-    spawnHitBurst(lane, '놓침');
-    updateHUD('놓침');
-  }
+  if (result) completeHoldNote(note, lane, result.name);
+  else completeHoldNote(note, lane, '놓침');
 }
 
 function markMisses() {
@@ -228,13 +234,13 @@ function markMisses() {
         n.judged = true;
         gameState.combo = 0;
         updateHUD('놓침');
-      } else if (n.holding && t - (n.endTimeMs ?? n.timeMs) > MISS_WINDOW) {
-        n.judged = true;
-        n.holding = false;
-        n.released = true;
-        gameState.activeHolds.delete(n.lane);
-        gameState.combo = 0;
-        updateHUD('놓침');
+      } else if (n.holding) {
+        const endMs = n.endTimeMs ?? n.timeMs;
+        if (t >= endMs && gameState.heldKeys.has(n.lane)) {
+          completeHoldNote(n, n.lane, '완벽');
+        } else if (t - endMs > MISS_WINDOW) {
+          completeHoldNote(n, n.lane, '놓침');
+        }
       }
     }
   });
