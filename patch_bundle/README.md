@@ -184,39 +184,3 @@ python -m http.server 8000
 4. 홀드는 `endTimeMs`를 반드시 `timeMs`보다 크게 설정
 5. 저장 후 게임 재실행
 
-
-
-## 실행만 하면 되는 패치 방법
-1. `apply_latest_patch.bat` 더블클릭
-2. 자동으로 기존 파일 백업(`*.bak`) 후 최신 패치 반영
-3. 게임 다시 실행
-
-패치 대상:
-- `index.html`
-- `app.js`
-- `style.css`
-- `README.md`
-
-## 프로그램 내 커스텀/즉시 테스트
-이제 곡 선택 화면에서 채보를 바로 수정하고 테스트할 수 있습니다.
-
-사용법:
-1. 곡 목록에서 곡 클릭(선택)
-2. `선택곡 채보 불러오기`
-3. JSON 편집
-4. `바로 테스트 시작` (저장 없이 즉시 플레이)
-5. 마음에 들면 `선택곡 채보 저장` (localStorage 저장)
-
-### 채보 JSON 빠른 예시
-```json
-{
-  "difficulty": "Custom",
-  "notes": [
-    {"timeMs": 1000, "lane": 0},
-    {"timeMs": 1400, "lane": 1, "endTimeMs": 2200},
-    {"timeMs": 2400, "lane": 2}
-  ]
-}
-```
-- `lane`: 0~3
-- 홀드노트: `endTimeMs > timeMs`
