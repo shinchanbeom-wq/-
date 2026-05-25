@@ -5,9 +5,9 @@
     {"timeMs": 1500, "lane": 1},
     {"timeMs": 2000, "lane": 2},
     {"timeMs": 2500, "lane": 3},
-    {"timeMs": 3000, "lane": 0},
-    {"timeMs": 3500, "lane": 1},
-    {"timeMs": 4000, "lane": 2},
-    {"timeMs": 4500, "lane": 3}
+    {"timeMs": 3200, "lane": 1, "endTimeMs": 4300},
+    {"timeMs": 4600, "lane": 0},
+    {"timeMs": 5000, "lane": 3, "endTimeMs": 6100},
+    {"timeMs": 6500, "lane": 2}
   ]
 }

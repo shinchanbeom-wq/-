@@ -160,3 +160,27 @@ python -m http.server 8000
 - `lane`: 0~3 (4키)
 
 > 샘플 오디오는 포함되어 있지 않습니다. `songs/sample/sample.ogg` 파일을 직접 넣어주세요.
+
+
+## 홀드 노트 채보 형식 (추가)
+이제 탭 노트와 홀드 노트를 함께 쓸 수 있습니다.
+
+- 탭 노트: `timeMs`, `lane`
+- 홀드 노트: `timeMs`, `lane`, `endTimeMs`
+
+예시:
+```json
+{ "timeMs": 3200, "lane": 1, "endTimeMs": 4300 }
+```
+
+의미:
+- `timeMs` 시점에 키를 누르고
+- `endTimeMs` 시점까지 누르고 있다가 떼면 판정
+
+### 채보 커스텀 방법 (요약)
+1. `songs/<song-id>/chart.json` 열기
+2. `notes` 배열에 노트 객체 추가
+3. 레인은 0~3 사용
+4. 홀드는 `endTimeMs`를 반드시 `timeMs`보다 크게 설정
+5. 저장 후 게임 재실행
+
