@@ -28,3 +28,9 @@ html, body { width:100%; height:100%; overflow:hidden; }
 #chart-editor { margin:12px 0; background:#1b1b1b; border:1px solid #444; padding:10px; }
 #chart-json { width:100%; min-height:220px; background:#0d0d0d; color:#d0f0ff; border:1px solid #3d3d3d; }
 .editor-actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+#timeline-editor { margin-top:8px; height:260px; display:grid; grid-template-columns:repeat(4,1fr); gap:6px; background:#101820; padding:8px; }
+.tl-lane { position:relative; border:1px solid #355; background:linear-gradient(180deg,#0e1720,#122432); }
+.tl-note { position:absolute; left:15%; width:70%; height:10px; background:#ffd166; border-radius:5px; cursor:pointer; }
+.tl-note.selected { outline:2px solid #fff; }
+.tl-hold { position:absolute; left:30%; width:40%; background:#66d9ff88; border-radius:5px; cursor:pointer; }

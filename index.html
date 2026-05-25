@@ -26,6 +26,14 @@
           <button id="test-chart-editor">바로 테스트 시작</button>
         </div>
         <small>형식: tap({"timeMs":1000,"lane":0}), hold({"timeMs":1200,"lane":1,"endTimeMs":2000})</small>
+        <div id="visual-editor">
+          <div class="editor-actions">
+            <button id="add-tap-note">탭 추가</button>
+            <button id="add-hold-note">홀드 추가</button>
+            <button id="clear-selected-note">선택 노트 삭제</button>
+          </div>
+          <div id="timeline-editor"></div>
+        </div>
         <textarea id="chart-json" spellcheck="false"></textarea>
       </div>
 

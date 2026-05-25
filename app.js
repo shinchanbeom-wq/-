@@ -106,6 +106,7 @@ async function loadChartIntoEditor(song) {
   const area = document.getElementById('chart-json');
   const chart = await resolveChart(song);
   area.value = JSON.stringify(chart, null, 2);
+  redrawTimelineEditor();
 }
 
 function readEditorChart() {
@@ -122,6 +123,63 @@ function validateChart(chart) {
     if (n.endTimeMs != null && !(n.endTimeMs > n.timeMs)) return '홀드노트 endTimeMs는 timeMs보다 커야 합니다.';
   }
   return null;
+}
+
+
+let editorState = { selectedNoteId: null, mode: 'tap', timelineMaxMs: 8000 };
+
+function getEditorChartObj() {
+  const c = readEditorChart();
+  if (!c) return null;
+  if (!Array.isArray(c.notes)) c.notes = [];
+  return c;
+}
+
+function redrawTimelineEditor() {
+  const host = document.getElementById('timeline-editor');
+  if (!host) return;
+  host.innerHTML = '';
+  const chart = getEditorChartObj();
+  if (!chart) return;
+
+  for (let lane = 0; lane < 4; lane++) {
+    const laneEl = document.createElement('div');
+    laneEl.className = 'tl-lane';
+    laneEl.dataset.lane = lane;
+    laneEl.onclick = (e) => {
+      if (e.target !== laneEl) return;
+      const rect = laneEl.getBoundingClientRect();
+      const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+      const timeMs = Math.round((y / rect.height) * editorState.timelineMaxMs);
+      if (editorState.mode === 'hold') {
+        chart.notes.push({ timeMs, lane, endTimeMs: Math.min(editorState.timelineMaxMs, timeMs + 1000) });
+      } else {
+        chart.notes.push({ timeMs, lane });
+      }
+      chart.notes.sort((a,b)=>a.timeMs-b.timeMs);
+      document.getElementById('chart-json').value = JSON.stringify(chart, null, 2);
+      redrawTimelineEditor();
+    };
+
+    chart.notes.forEach((n, idx) => {
+      if (n.lane !== lane) return;
+      const top = (n.timeMs / editorState.timelineMaxMs) * laneEl.clientHeight;
+      if (typeof n.endTimeMs === 'number' && n.endTimeMs > n.timeMs) {
+        const hold = document.createElement('div');
+        hold.className = 'tl-hold' + (editorState.selectedNoteId === idx ? ' selected' : '');
+        hold.style.top = `${(n.timeMs / editorState.timelineMaxMs) * 100}%`;
+        hold.style.height = `${((n.endTimeMs - n.timeMs) / editorState.timelineMaxMs) * 100}%`;
+        hold.onclick = (ev) => { ev.stopPropagation(); editorState.selectedNoteId = idx; redrawTimelineEditor(); };
+        laneEl.appendChild(hold);
+      }
+      const note = document.createElement('div');
+      note.className = 'tl-note' + (editorState.selectedNoteId === idx ? ' selected' : '');
+      note.style.top = `${(n.timeMs / editorState.timelineMaxMs) * 100}%`;
+      note.onclick = (ev) => { ev.stopPropagation(); editorState.selectedNoteId = idx; redrawTimelineEditor(); };
+      laneEl.appendChild(note);
+    });
+    host.appendChild(laneEl);
+  }
 }
 
 function setupLanes() {
@@ -150,7 +208,8 @@ function normalizeChartNotes(notes) {
       judged: false,
       holding: false,
       holdHeadJudge: null,
-      released: false
+      released: false,
+      holdTickMs: 0
     };
   });
 }
@@ -211,6 +270,7 @@ function onLanePress(lane) {
   } else {
     note.holding = true;
     note.holdHeadJudge = result;
+    note.holdTickMs = note.timeMs;
     gameState.activeHolds.set(lane, note.id);
   }
 
@@ -270,6 +330,12 @@ function markMisses() {
         updateHUD('놓침');
       } else if (n.holding) {
         const endMs = n.endTimeMs ?? n.timeMs;
+        if (gameState.heldKeys.has(n.lane)) {
+          while (n.holdTickMs + 120 <= Math.min(t, endMs)) {
+            n.holdTickMs += 120;
+            gameState.score += 40;
+          }
+        }
         if (t >= endMs && gameState.heldKeys.has(n.lane)) {
           completeHoldNote(n, n.lane, '완벽');
         } else if (t - endMs > MISS_WINDOW) {
@@ -309,8 +375,12 @@ function renderLoop() {
       } else {
         const endMs = n.endTimeMs ?? n.timeMs;
         const tailY = judgeY - ((endMs - t) / NOTE_TRAVEL_MS) * judgeY;
-        const top = Math.min(headY, tailY);
-        const height = Math.max(10, Math.abs(tailY - headY));
+        let renderHeadY = headY;
+        if (n.holding) {
+          renderHeadY = judgeY;
+        }
+        const top = Math.min(renderHeadY, tailY);
+        const height = Math.max(6, Math.abs(tailY - renderHeadY));
         if (top > laneEl.clientHeight + 40 || top + height < -40) return;
 
         const tail = document.createElement('div');
@@ -321,7 +391,7 @@ function renderLoop() {
 
         const head = document.createElement('div');
         head.className = 'note hold-head';
-        head.style.top = `${headY - 8}px`;
+        head.style.top = `${renderHeadY - 8}px`;
         laneEl.appendChild(head);
       }
     });
@@ -386,3 +456,16 @@ document.getElementById('test-chart-editor').onclick = () => {
   if (err) { alert(err); return; }
   startGame(selectedSong, chart);
 };
+
+document.getElementById('add-tap-note').onclick = () => { editorState.mode = 'tap'; };
+document.getElementById('add-hold-note').onclick = () => { editorState.mode = 'hold'; };
+document.getElementById('clear-selected-note').onclick = () => {
+  const chart = getEditorChartObj();
+  if (!chart) return;
+  if (editorState.selectedNoteId == null) return;
+  chart.notes.splice(editorState.selectedNoteId, 1);
+  editorState.selectedNoteId = null;
+  document.getElementById('chart-json').value = JSON.stringify(chart, null, 2);
+  redrawTimelineEditor();
+};
+document.getElementById('chart-json').addEventListener('input', () => { redrawTimelineEditor(); });
