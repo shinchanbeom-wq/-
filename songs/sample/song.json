@@ -1,0 +1,9 @@
+{
+  "id": "sample",
+  "title": "Sample Beat",
+  "artist": "Demo Composer",
+  "audio": "songs/sample/sample.ogg",
+  "bpm": 120,
+  "offsetMs": 0,
+  "chart": "songs/sample/chart.json"
+}
