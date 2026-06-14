@@ -5,16 +5,16 @@ api-version: '1.21'
 author: OpenAI
 commands:
   bossspawn:
-    description: 파티 또는 개인 엔더맨 보스 도전을 시작합니다.
+    description: 파티 또는 개인 끝의 숨결 도전을 시작합니다.
     usage: /bossspawn enderman
     permission: endermanboss.spawn
   bossinfo:
-    description: 엔더맨 보스 정보를 확인합니다.
+    description: 끝의 숨결 정보를 확인합니다.
     usage: /bossinfo enderman
   party:
     description: 보스 도전용 파티를 관리합니다.
     usage: /party <create|invite|join|leave|disband|info>
 permissions:
   endermanboss.spawn:
-    description: 엔더맨 보스를 소환할 수 있습니다.
+    description: 끝의 숨결을 소환할 수 있습니다.
     default: op

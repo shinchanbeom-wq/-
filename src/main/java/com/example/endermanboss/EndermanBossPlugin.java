@@ -109,7 +109,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             return true;
         }
         if (fight != null && fight.isActive()) {
-            player.sendMessage(ChatColor.RED + "이미 진행 중인 엔더맨 보스전이 있습니다.");
+            player.sendMessage(ChatColor.RED + "이미 진행 중인 끝의 숨결 보스전이 있습니다.");
             return true;
         }
         Party party = getParty(player.getUniqueId());
@@ -132,7 +132,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
 
     private void startFight(Location location, List<Player> challengers) {
         Enderman boss = location.getWorld().spawn(location, Enderman.class, entity -> {
-            entity.setCustomName(ChatColor.DARK_PURPLE + "엔더맨 보스");
+            entity.setCustomName(ChatColor.DARK_PURPLE + "끝의 숨결");
             entity.setCustomNameVisible(true);
             entity.setRemoveWhenFarAway(false);
             entity.getPersistentDataContainer().set(bossKey, PersistentDataType.BYTE, (byte) 1);
@@ -140,16 +140,16 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         double maxHealth = BASE_HEALTH * (1.0 + Math.max(0, challengers.size() - 1) * HEALTH_PER_PARTY_MEMBER);
         boss.getAttribute(Attribute.MAX_HEALTH).setBaseValue(maxHealth);
         boss.setHealth(maxHealth);
-        BossBar bar = Bukkit.createBossBar(ChatColor.DARK_PURPLE + "엔더맨 보스", BarColor.PURPLE, BarStyle.SEGMENTED_10);
+        BossBar bar = Bukkit.createBossBar(ChatColor.DARK_PURPLE + "끝의 숨결", BarColor.PURPLE, BarStyle.SEGMENTED_10);
         challengers.forEach(bar::addPlayer);
         fight = new BossFight(boss, bar, challengers, maxHealth);
         fight.start();
-        Bukkit.broadcastMessage(ChatColor.LIGHT_PURPLE + "엔더맨 보스전 시작! 참여 인원: " + challengers.size() + "명, 체력: " + (int) maxHealth);
+        Bukkit.broadcastMessage(ChatColor.LIGHT_PURPLE + "끝의 숨결 보스전 시작! 참여 인원: " + challengers.size() + "명, 체력: " + (int) maxHealth);
         Bukkit.broadcastMessage(ChatColor.GRAY + "페이즈 컷라인: 2페이즈 " + (int) phaseTwoCutoff(maxHealth) + " HP / 3페이즈 " + (int) phaseThreeCutoff(maxHealth) + " HP");
     }
 
     private void sendBossInfo(CommandSender sender) {
-        sender.sendMessage(ChatColor.LIGHT_PURPLE + "엔더맨 보스: 파티 인원에 비례해 체력과 페이즈 컷라인이 함께 증가합니다.");
+        sender.sendMessage(ChatColor.LIGHT_PURPLE + "끝의 숨결: 파티 인원에 비례해 체력과 페이즈 컷라인이 함께 증가합니다.");
         sender.sendMessage(ChatColor.GRAY + "1페이즈: 뒤 텔레포트 공격, 후퇴 후 추적 공허탄 발사");
         sender.sendMessage(ChatColor.GRAY + "2페이즈: 8개 웅덩이, 회귀 엔드마이트, 돌진, 8연속 텔레포트, 낙하 공허탄, 자폭 엔드마이트, 엔드 기둥");
         sender.sendMessage(ChatColor.GRAY + "3페이즈: 30초 처치 제한, 충격파, 실패 시 보상 없음");
@@ -722,7 +722,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             finalPhaseStarted = true;
             boss.setAI(false);
             boss.setVelocity(new Vector(0, 0, 0));
-            Bukkit.broadcastMessage(ChatColor.DARK_PURPLE + "엔더맨 보스가 힘을 모읍니다! 30초 안에 처치하세요.");
+            Bukkit.broadcastMessage(ChatColor.DARK_PURPLE + "끝의 숨결이 힘을 모읍니다! 30초 안에 처치하세요.");
             taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
                 if (isActive()) {
                     boss.getWorld().spawnParticle(Particle.SONIC_BOOM, boss.getLocation(), 2, 1.5, 0.5, 1.5);
@@ -744,7 +744,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
                 location.getWorld().createExplosion(location, 4.0f, false, false, boss);
                 boss.remove();
                 cleanup(true);
-                Bukkit.broadcastMessage(ChatColor.RED + "엔더맨 보스 처치에 실패했습니다. 보상은 지급되지 않습니다.");
+                Bukkit.broadcastMessage(ChatColor.RED + "끝의 숨결 처치에 실패했습니다. 보상은 지급되지 않습니다.");
             }, 600L).getTaskId());
         }
 
@@ -840,7 +840,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         }
 
         void announceContribution(List<Map.Entry<UUID, Double>> ranking) {
-            Bukkit.broadcastMessage(ChatColor.GOLD + "===== 엔더맨 보스 기여도 =====");
+            Bukkit.broadcastMessage(ChatColor.GOLD + "===== 끝의 숨결 기여도 =====");
             int rank = 1;
             for (Map.Entry<UUID, Double> entry : ranking) {
                 Player player = Bukkit.getPlayer(entry.getKey());
