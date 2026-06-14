@@ -1,16 +1,22 @@
 # EndermanBoss Paper Plugin
 
-이 저장소는 `.exe`, `.dll`, `.jar`, `.bin`, 이미지 파일, 압축 파일, AI 모델 파일, Git LFS 파일 없이 **소스코드와 빌드 명령어만** 제공합니다.
+이 저장소는 `.exe`, `.dll`, `.jar`, `.bin`, 이미지 파일, 압축 파일, AI 모델 파일, Git LFS 파일 없이 **소스코드와 JAR 생성용 BAT 파일만** 제공합니다.
 
-## CMD에서 바로 JAR 만들기
+## BAT 파일로 바로 JAR 만들기
 
-Windows CMD에서 저장소 루트 폴더로 이동한 뒤 아래 명령어를 실행하세요.
+Windows에서 저장소 루트 폴더의 아래 파일을 더블클릭하면 JAR가 생성됩니다.
 
-```cmd
-build_plugin.cmd
+```text
+build_plugin.bat
 ```
 
-또는 배치 파일 없이 직접 실행하려면 아래 명령어를 사용하세요.
+CMD에서 직접 실행하려면 아래 명령어를 사용하세요.
+
+```cmd
+build_plugin.bat
+```
+
+또는 배치 파일 없이 직접 Gradle을 실행하려면 아래 명령어를 사용하세요.
 
 ```cmd
 gradle clean build
