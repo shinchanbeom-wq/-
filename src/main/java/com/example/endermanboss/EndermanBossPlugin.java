@@ -34,6 +34,10 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Silverfish;
+import org.bukkit.entity.Wither;
+import org.bukkit.entity.WitherSkeleton;
+import org.bukkit.entity.WitherSkull;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -42,6 +46,8 @@ import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -58,17 +64,27 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
     private static final double PHASE_THREE_START_RATIO = 0.20;
     private static final long DAGGER_COOLDOWN_MS = 5_000L;
     private static final long BOOTS_COOLDOWN_MS = 8_000L;
+    private static final long WITHER_DASHER_COOLDOWN_MS = 65_000L;
+    private static final double WITHER_FOLLOWER_HEALTH = 800.0;
 
     private NamespacedKey bossKey;
     private NamespacedKey daggerKey;
     private NamespacedKey bootsKey;
     private NamespacedKey voidProjectileKey;
+    private NamespacedKey witherBossKey;
+    private NamespacedKey witherDasherKey;
+    private NamespacedKey witherLauncherKey;
+    private NamespacedKey witherFrameKey;
     private BossFight fight;
+    private WitherFollowerFight witherFight;
     private final Map<UUID, Party> partiesByLeader = new HashMap<>();
     private final Map<UUID, UUID> memberToLeader = new HashMap<>();
     private final Map<UUID, UUID> pendingInvites = new HashMap<>();
     private final Map<UUID, Long> daggerCooldowns = new HashMap<>();
     private final Map<UUID, Long> bootsCooldowns = new HashMap<>();
+    private final Map<UUID, Long> witherDasherCooldowns = new HashMap<>();
+    private final Map<UUID, Integer> witherLauncherUses = new HashMap<>();
+    private final Map<UUID, Long> witherLauncherCooldowns = new HashMap<>();
     private boolean pluginTeleport;
 
     @Override
@@ -77,6 +93,10 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         daggerKey = new NamespacedKey(this, "void_dagger");
         bootsKey = new NamespacedKey(this, "void_boots");
         voidProjectileKey = new NamespacedKey(this, "void_projectile");
+        witherBossKey = new NamespacedKey(this, "wither_follower");
+        witherDasherKey = new NamespacedKey(this, "wither_dasher");
+        witherLauncherKey = new NamespacedKey(this, "wither_launcher");
+        witherFrameKey = new NamespacedKey(this, "wither_frame");
         Bukkit.getPluginManager().registerEvents(this, this);
         getCommand("bossspawn").setExecutor(this);
         getCommand("bossinfo").setExecutor(this);
@@ -87,6 +107,9 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
     public void onDisable() {
         if (fight != null) {
             fight.cleanup(false);
+        }
+        if (witherFight != null) {
+            witherFight.cleanup(false);
         }
     }
 
@@ -104,17 +127,29 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             sender.sendMessage(ChatColor.RED + "플레이어만 사용할 수 있습니다.");
             return true;
         }
-        if (args.length == 0 || !args[0].equalsIgnoreCase("enderman")) {
-            player.sendMessage(ChatColor.RED + "사용법: /bossspawn enderman");
-            return true;
-        }
-        if (fight != null && fight.isActive()) {
-            player.sendMessage(ChatColor.RED + "이미 진행 중인 끝의 숨결 보스전이 있습니다.");
+        if (args.length == 0) {
+            player.sendMessage(ChatColor.RED + "사용법: /bossspawn <enderman|wither>");
             return true;
         }
         Party party = getParty(player.getUniqueId());
         List<Player> challengers = party == null ? List.of(player) : party.onlineMembers();
-        startFight(player.getLocation(), challengers);
+        if (args[0].equalsIgnoreCase("enderman")) {
+            if (fight != null && fight.isActive()) {
+                player.sendMessage(ChatColor.RED + "이미 진행 중인 끝의 숨결 보스전이 있습니다.");
+                return true;
+            }
+            startFight(player.getLocation(), challengers);
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("wither") || args[0].equalsIgnoreCase("witherfollower")) {
+            if (witherFight != null && witherFight.isActive()) {
+                player.sendMessage(ChatColor.RED + "이미 진행 중인 위더 추종자 레이드가 있습니다.");
+                return true;
+            }
+            startWitherFollower(player.getLocation(), challengers);
+            return true;
+        }
+        player.sendMessage(ChatColor.RED + "사용법: /bossspawn <enderman|wither>");
         return true;
     }
 
@@ -125,7 +160,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
                 .filter(value -> value.startsWith(args[0].toLowerCase(Locale.ROOT))).collect(Collectors.toList());
         }
         if ((command.getName().equalsIgnoreCase("bossspawn") || command.getName().equalsIgnoreCase("bossinfo")) && args.length == 1) {
-            return List.of("enderman");
+            return List.of("enderman", "wither");
         }
         return List.of();
     }
@@ -155,6 +190,28 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         sender.sendMessage(ChatColor.GRAY + "3페이즈: 30초 처치 제한, 충격파, 실패 시 보상 없음");
         sender.sendMessage(ChatColor.GRAY + "보스가 텔레포트할 때마다 이전 위치에 공허 웅덩이가 남습니다.");
         sender.sendMessage(ChatColor.GRAY + "처치 시 파티 기여도 순위에 따라 공허 단검, 공허 부츠, 경험치를 지급합니다.");
+        sender.sendMessage(ChatColor.DARK_GRAY + "위더 추종자: /bossspawn wither - 4페이즈, 위더 대셔/런쳐/뼈대 보상");
+    }
+
+    private void startWitherFollower(Location location, List<Player> challengers) {
+        WitherSkeleton boss = location.getWorld().spawn(location, WitherSkeleton.class, entity -> {
+            entity.setCustomName(ChatColor.DARK_RED + "위더 추종자");
+            entity.setCustomNameVisible(true);
+            entity.setRemoveWhenFarAway(false);
+            entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(WITHER_FOLLOWER_HEALTH);
+            entity.getAttribute(Attribute.ATTACK_DAMAGE).setBaseValue(3.0);
+            if (entity.getAttribute(Attribute.SCALE) != null) {
+                entity.getAttribute(Attribute.SCALE).setBaseValue(2.0);
+            }
+            entity.setHealth(WITHER_FOLLOWER_HEALTH);
+            entity.getPersistentDataContainer().set(witherBossKey, PersistentDataType.BYTE, (byte) 1);
+            entity.setAI(false);
+        });
+        BossBar bar = Bukkit.createBossBar(ChatColor.DARK_RED + "위더 추종자", BarColor.RED, BarStyle.SEGMENTED_10);
+        challengers.forEach(bar::addPlayer);
+        witherFight = new WitherFollowerFight(boss, bar, challengers);
+        witherFight.start();
+        Bukkit.broadcastMessage(ChatColor.DARK_RED + "위더 추종자가 생성되었습니다. 5초 후 활동을 시작합니다!");
     }
 
     private double phaseTwoCutoff(double maxHealth) {
@@ -273,12 +330,22 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
 
     @EventHandler
     public void onBossDamage(EntityDamageByEntityEvent event) {
-        if (fight == null || !fight.isBoss(event.getEntity())) {
+        Player player = damagingPlayer(event.getDamager());
+        if (fight != null && fight.isBoss(event.getEntity())) {
+            if (player != null) {
+                fight.addContribution(player.getUniqueId(), event.getFinalDamage());
+            }
             return;
         }
-        Player player = damagingPlayer(event.getDamager());
-        if (player != null) {
-            fight.addContribution(player.getUniqueId(), event.getFinalDamage());
+        if (witherFight != null && witherFight.isBoss(event.getEntity())) {
+            if (witherFight.finalPhase && !(event.getDamager() instanceof WitherSkull)) {
+                event.setCancelled(true);
+                return;
+            }
+            if (player != null) {
+                witherFight.addContribution(player.getUniqueId(), event.getFinalDamage());
+            }
+            witherFight.recordIncomingDamage(event.getFinalDamage());
         }
     }
 
@@ -297,6 +364,13 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             if (fight.isActive()) {
                 fight.boss.damage(14.0);
             }
+            return;
+        }
+        if (witherFight != null && witherFight.isBoss(event.getEntity())) {
+            event.getDrops().clear();
+            event.setDroppedExp(0);
+            witherFight.rewardAndCleanup();
+            witherFight = null;
         }
     }
 
@@ -322,6 +396,12 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         if (hasKey(item, daggerKey)) {
             event.setCancelled(true);
             useDagger(player);
+        } else if (hasKey(item, witherDasherKey)) {
+            event.setCancelled(true);
+            useWitherDasher(player);
+        } else if (hasKey(item, witherLauncherKey)) {
+            event.setCancelled(true);
+            useWitherLauncher(player);
         }
     }
 
@@ -331,6 +411,10 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         ItemStack boots = player.getInventory().getBoots();
         if (hasKey(boots, bootsKey) && player.isOnGround()) {
             player.setAllowFlight(true);
+        }
+        ItemStack leggings = player.getInventory().getLeggings();
+        if (hasKey(leggings, witherFrameKey)) {
+            applyWitherFrameAura(player);
         }
     }
 
@@ -345,6 +429,74 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         player.setFlying(false);
         player.setAllowFlight(false);
         useBoots(player);
+    }
+
+
+    private void useWitherDasher(Player player) {
+        if (isCooling(player, witherDasherCooldowns, WITHER_DASHER_COOLDOWN_MS, "위더 대셔")) {
+            return;
+        }
+        LivingEntity target = nearestTarget(player, 28.0, true);
+        if (target == null) {
+            player.sendMessage(ChatColor.RED + "위더 대셔 대상이 없습니다.");
+            return;
+        }
+        witherDasherCooldowns.put(player.getUniqueId(), System.currentTimeMillis());
+        player.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, 80, 2));
+        taskDasherSequence(player, target, 0, 5);
+    }
+
+    private void taskDasherSequence(Player player, LivingEntity target, int step, int maxSteps) {
+        if (step >= maxSteps || !player.isOnline() || target.isDead()) {
+            return;
+        }
+        player.setVelocity(target.getLocation().toVector().subtract(player.getLocation().toVector()).normalize().multiply(1.7));
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            if (target.isValid() && player.getLocation().distanceSquared(target.getLocation()) < 16) {
+                target.damage(8.0, player);
+            }
+            LivingEntity next = nearestTarget(player, 24.0, true);
+            if (next != null) {
+                taskDasherSequence(player, next, step + 1, maxSteps);
+            }
+        }, 16L);
+    }
+
+    private void useWitherLauncher(Player player) {
+        if (isCooling(player, witherLauncherCooldowns, 3_000L, "위더 런쳐")) {
+            return;
+        }
+        int uses = witherLauncherUses.merge(player.getUniqueId(), 1, Integer::sum);
+        if (uses >= 3) {
+            witherLauncherUses.put(player.getUniqueId(), 0);
+            witherLauncherCooldowns.put(player.getUniqueId(), System.currentTimeMillis());
+        }
+        for (int i = 0; i < 5; i++) {
+            Bukkit.getScheduler().runTaskLater(this, () -> shootSkull(player.getEyeLocation(), player.getLocation().getDirection(), player, true), i * 4L);
+        }
+    }
+
+    private void applyWitherFrameAura(Player player) {
+        for (Entity entity : player.getNearbyEntities(5, 3, 5)) {
+            if (entity instanceof LivingEntity living && !living.equals(player)) {
+                Party party = getParty(player.getUniqueId());
+                if (living instanceof Player other && party != null && party.members.contains(other.getUniqueId())) {
+                    continue;
+                }
+                living.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, 60, 0));
+            }
+        }
+    }
+
+    private WitherSkull shootSkull(Location start, Vector direction, LivingEntity shooter, boolean canBeParried) {
+        WitherSkull skull = start.getWorld().spawn(start, WitherSkull.class, entity -> {
+            entity.setShooter(shooter);
+            entity.setDirection(direction.normalize());
+            entity.setVelocity(direction.normalize().multiply(1.3));
+            entity.setYield(canBeParried ? 1.0f : 2.0f);
+            entity.setCharged(!canBeParried);
+        });
+        return skull;
     }
 
     private void useDagger(Player player) {
@@ -484,6 +636,362 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         return item;
     }
 
+
+    private ItemStack createWitherDasher() {
+        ItemStack item = new ItemStack(Material.NETHERITE_SWORD);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ChatColor.DARK_RED + "위더 대셔");
+        meta.setLore(List.of(ChatColor.GRAY + "우클릭: 위더 추종자의 연계 돌진을 즉시 사용", ChatColor.GRAY + "사용 중 저항, 쿨타임 65초"));
+        meta.addEnchant(Enchantment.SHARPNESS, 5, true);
+        meta.getPersistentDataContainer().set(witherDasherKey, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createWitherLauncher() {
+        ItemStack item = new ItemStack(Material.BOW);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ChatColor.DARK_RED + "위더 런쳐");
+        meta.setLore(List.of(ChatColor.GRAY + "우클릭: 보는 방향으로 위더 해골 5연사", ChatColor.GRAY + "3회 사용 후 3초 쿨타임"));
+        meta.addEnchant(Enchantment.POWER, 5, true);
+        meta.getPersistentDataContainer().set(witherLauncherKey, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private ItemStack createWitherFrame() {
+        ItemStack item = new ItemStack(Material.NETHERITE_LEGGINGS);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ChatColor.DARK_RED + "위더의 뼈대");
+        meta.setLore(List.of(ChatColor.GRAY + "착용: 근처 적에게 위더 오라 부여"));
+        meta.addEnchant(Enchantment.PROTECTION, 4, true);
+        meta.getPersistentDataContainer().set(witherFrameKey, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+
+    private final class WitherFollowerFight {
+        private final WitherSkeleton boss;
+        private final BossBar bar;
+        private final Set<UUID> challengers;
+        private final Map<UUID, Double> contribution = new HashMap<>();
+        private final List<Integer> taskIds = new ArrayList<>();
+        private int patternCount;
+        private boolean ultimateRunning;
+        private boolean finalPhase;
+        private boolean weakWithersAlive;
+        private double incomingWindowDamage;
+
+        WitherFollowerFight(WitherSkeleton boss, BossBar bar, List<Player> challengers) {
+            this.boss = boss;
+            this.bar = bar;
+            this.challengers = challengers.stream().map(Player::getUniqueId).collect(Collectors.toCollection(HashSet::new));
+        }
+
+        void start() {
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> boss.setAI(true), 100L).getTaskId());
+            long patternInterval = Math.max(45L, 100L - Math.max(0, challengers.size() - 1) * 10L);
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, this::tick, 20L, 20L).getTaskId());
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, this::usePattern, 140L, patternInterval).getTaskId());
+        }
+
+        boolean isActive() {
+            return boss.isValid() && !boss.isDead();
+        }
+
+        boolean isBoss(Entity entity) {
+            return entity.getUniqueId().equals(boss.getUniqueId());
+        }
+
+        void addContribution(UUID id, double damage) {
+            if (challengers.contains(id)) {
+                contribution.merge(id, damage, Double::sum);
+            }
+        }
+
+        void recordIncomingDamage(double damage) {
+            incomingWindowDamage += damage;
+        }
+
+        Player randomTarget() {
+            List<Player> online = challengers.stream()
+                .map(Bukkit::getPlayer)
+                .filter(player -> player != null && player.isOnline() && !player.isDead() && player.getWorld().equals(boss.getWorld()))
+                .collect(Collectors.toList());
+            if (online.isEmpty()) {
+                return null;
+            }
+            return online.get(ThreadLocalRandom.current().nextInt(online.size()));
+        }
+
+        void tick() {
+            if (!isActive()) {
+                cleanup(false);
+                return;
+            }
+            if (randomTarget() == null) {
+                Bukkit.broadcastMessage(ChatColor.RED + "모든 파티원이 사망하여 위더 추종자 레이드에 실패했습니다.");
+                cleanup(false);
+                return;
+            }
+            double hp = boss.getHealth();
+            bar.setProgress(Math.max(0.0, Math.min(1.0, hp / WITHER_FOLLOWER_HEALTH)));
+            if (hp <= 100) {
+                bar.setColor(BarColor.PURPLE);
+                if (!finalPhase) {
+                    enterFinalPhase();
+                }
+            } else if (hp <= 200) {
+                bar.setColor(BarColor.BLUE);
+            } else if (hp <= 500) {
+                bar.setColor(BarColor.BLACK);
+            } else {
+                bar.setColor(BarColor.RED);
+            }
+        }
+
+        void usePattern() {
+            if (!isActive() || finalPhase || ultimateRunning) {
+                return;
+            }
+            double hp = boss.getHealth();
+            if (hp > 500) {
+                switch (ThreadLocalRandom.current().nextInt(5)) {
+                    case 0 -> leapQuake();
+                    case 1 -> chainDash(0, new HashSet<>());
+                    case 2 -> explosiveShot();
+                    case 3 -> damageCheckStance(40, 12, false);
+                    default -> summonBurrowingWorms();
+                }
+            } else if (hp > 200) {
+                patternCount++;
+                if (patternCount >= 5 && ThreadLocalRandom.current().nextInt(4) == 0) {
+                    phaseTwoUltimate();
+                    patternCount = 0;
+                    return;
+                }
+                switch (ThreadLocalRandom.current().nextInt(3)) {
+                    case 0 -> skullBarrage(15, true);
+                    case 1 -> summonWeakWithers();
+                    default -> radialSkulls();
+                }
+            } else {
+                switch (ThreadLocalRandom.current().nextInt(4)) {
+                    case 0 -> focusedSkulls();
+                    case 1 -> phaseTwoUltimate();
+                    case 2 -> leapQuake();
+                    default -> explosiveShot();
+                }
+            }
+        }
+
+        void leapQuake() {
+            Player target = randomTarget();
+            if (target == null) return;
+            boss.setVelocity(new Vector(0, 1.5, 0));
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                if (!isActive()) return;
+                boss.teleport(target.getLocation());
+                boss.getWorld().spawnParticle(Particle.EXPLOSION, boss.getLocation(), 2);
+                for (Entity entity : boss.getNearbyEntities(2, 2, 2)) {
+                    if (entity instanceof LivingEntity living && !living.equals(boss)) {
+                        living.damage(8, boss);
+                        living.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 100, 0));
+                    }
+                }
+            }, 30L).getTaskId());
+        }
+
+        void chainDash(int count, Set<UUID> hit) {
+            if (count >= 3) return;
+            Player target = randomTarget();
+            if (target == null || hit.contains(target.getUniqueId())) return;
+            hit.add(target.getUniqueId());
+            boss.setVelocity(target.getLocation().toVector().subtract(boss.getLocation().toVector()).normalize().multiply(1.8));
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                if (target.isOnline() && boss.getLocation().distanceSquared(target.getLocation()) < 16) {
+                    target.damage(7, boss);
+                }
+                chainDash(count + 1, hit);
+            }, 18L).getTaskId());
+        }
+
+        void explosiveShot() {
+            Player target = randomTarget();
+            if (target == null) return;
+            Vector dir = target.getLocation().toVector().subtract(boss.getEyeLocation().toVector()).normalize();
+            WitherSkull skull = shootSkull(boss.getEyeLocation(), dir, boss, true);
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, skull::remove, 30L).getTaskId());
+        }
+
+        void damageCheckStance(double requiredDamage, int seconds, boolean selfDamageOnSuccess) {
+            ultimateRunning = true;
+            incomingWindowDamage = 0;
+            boss.setAI(false);
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "위더 추종자가 힘을 모읍니다! " + seconds + "초 안에 " + (int) requiredDamage + " 피해를 주세요.");
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                if (!isActive()) return;
+                if (incomingWindowDamage < requiredDamage) {
+                    Bukkit.broadcastMessage(ChatColor.RED + "저지 실패! 위더 추종자가 폭발합니다.");
+                    boss.getWorld().createExplosion(boss.getLocation(), 3.0f, false, false, boss);
+                    for (Entity entity : boss.getNearbyEntities(8, 4, 8)) {
+                        if (entity instanceof LivingEntity living && !living.equals(boss)) {
+                            living.damage(8, boss);
+                            living.setVelocity(living.getLocation().toVector().subtract(boss.getLocation().toVector()).normalize().multiply(1.8));
+                        }
+                    }
+                } else {
+                    Bukkit.broadcastMessage(ChatColor.GREEN + "저지 성공! 위더 추종자가 그로기 상태에 빠집니다.");
+                    if (selfDamageOnSuccess) boss.damage(30.0);
+                    boss.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, 60, 0));
+                }
+                boss.setAI(true);
+                ultimateRunning = false;
+            }, seconds * 20L).getTaskId());
+        }
+
+        void summonBurrowingWorms() {
+            for (int i = 0; i < 18; i++) {
+                Location spawn = boss.getLocation().clone().add(ThreadLocalRandom.current().nextDouble(-10, 10), 0, ThreadLocalRandom.current().nextDouble(-10, 10));
+                spawn.getWorld().spawnParticle(Particle.BLOCK, spawn, 20, 0.3, 0.1, 0.3, Material.SOUL_SAND.createBlockData());
+                Silverfish worm = spawn.getWorld().spawn(spawn, Silverfish.class, entity -> {
+                    entity.setCustomName(ChatColor.DARK_GRAY + "침식하는 벌레");
+                    entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(10.0);
+                    entity.setHealth(10.0);
+                });
+                taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                    Player target = randomTarget();
+                    if (!worm.isValid() || target == null) { worm.remove(); return; }
+                    worm.setTarget(target);
+                    if (worm.getLocation().distanceSquared(target.getLocation()) < 3) {
+                        target.addPotionEffect(new PotionEffect(PotionEffectType.WITHER, 100, 0));
+                    }
+                }, 0L, 20L).getTaskId());
+            }
+        }
+
+        void skullBarrage(int seconds, boolean parryable) {
+            boss.setAI(false);
+            boss.setVelocity(new Vector(0, 0.4, 0));
+            for (int i = 0; i < seconds * 2; i++) {
+                taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                    Player target = randomTarget();
+                    if (target != null && isActive()) shootSkull(boss.getEyeLocation(), target.getLocation().toVector().subtract(boss.getEyeLocation().toVector()), boss, parryable);
+                }, i * 10L).getTaskId());
+            }
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> boss.setAI(true), seconds * 20L).getTaskId());
+        }
+
+        void summonWeakWithers() {
+            if (weakWithersAlive) return;
+            weakWithersAlive = true;
+            List<Wither> withers = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                Wither wither = boss.getWorld().spawn(boss.getLocation().clone().add(i * 2 - 1, 1, 0), Wither.class, entity -> {
+                    entity.setCustomName(ChatColor.GRAY + "약화된 위더");
+                    entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(20.0);
+                    entity.setHealth(20.0);
+                    if (entity.getAttribute(Attribute.ATTACK_DAMAGE) != null) entity.getAttribute(Attribute.ATTACK_DAMAGE).setBaseValue(2.0);
+                });
+                withers.add(wither);
+            }
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> weakWithersAlive = withers.stream().anyMatch(Entity::isValid), 20L, 20L).getTaskId());
+        }
+
+        void radialSkulls() {
+            for (int i = 0; i < 12; i++) {
+                double angle = Math.PI * 2 * i / 12.0;
+                shootSkull(boss.getEyeLocation(), new Vector(Math.cos(angle), 0.05, Math.sin(angle)), boss, true);
+            }
+        }
+
+        void focusedSkulls() {
+            Player target = randomTarget();
+            if (target == null) return;
+            for (int i = 0; i < 3; i++) {
+                taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> shootSkull(boss.getEyeLocation(), target.getLocation().toVector().subtract(boss.getEyeLocation().toVector()), boss, false), i * 8L).getTaskId());
+            }
+        }
+
+        void phaseTwoUltimate() {
+            Player target = randomTarget();
+            if (target == null) return;
+            ultimateRunning = true;
+            damageCheckStance(50, 15, true);
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                if (incomingWindowDamage >= 50 || !isActive()) return;
+                chainDash(0, new HashSet<>());
+                for (int i = 0; i < 5; i++) {
+                    taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, this::focusedSkulls, 40L + i * 20L).getTaskId());
+                }
+                taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                    for (Entity entity : boss.getNearbyEntities(10, 5, 10)) {
+                        if (entity instanceof LivingEntity living && !living.equals(boss)) {
+                            living.setVelocity(boss.getLocation().toVector().subtract(living.getLocation().toVector()).normalize().multiply(1.2));
+                            living.damage(10, boss);
+                        }
+                    }
+                    ultimateRunning = false;
+                }, 160L).getTaskId());
+            }, 300L).getTaskId());
+        }
+
+        void enterFinalPhase() {
+            finalPhase = true;
+            boss.setAI(false);
+            boss.setVelocity(new Vector(0, 1.2, 0));
+            Bukkit.broadcastMessage(ChatColor.DARK_GRAY + "위더 추종자가 공중에서 최후의 난사를 시작합니다!");
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                if (!isActive()) return;
+                Player target = randomTarget();
+                if (target != null) shootSkull(boss.getEyeLocation(), target.getLocation().toVector().subtract(boss.getEyeLocation().toVector()), boss, ThreadLocalRandom.current().nextBoolean());
+            }, 0L, 8L).getTaskId());
+        }
+
+        void rewardAndCleanup() {
+            List<Map.Entry<UUID, Double>> ranking = contribution.entrySet().stream()
+                .filter(entry -> challengers.contains(entry.getKey()))
+                .sorted(Map.Entry.<UUID, Double>comparingByValue().reversed())
+                .collect(Collectors.toList());
+            for (UUID id : challengers) contribution.putIfAbsent(id, 0.0);
+            ranking = contribution.entrySet().stream().filter(entry -> challengers.contains(entry.getKey())).sorted(Map.Entry.<UUID, Double>comparingByValue().reversed()).collect(Collectors.toList());
+            Bukkit.broadcastMessage(ChatColor.DARK_RED + "===== 위더 추종자 기여도 =====");
+            for (int i = 0; i < ranking.size(); i++) {
+                Player player = Bukkit.getPlayer(ranking.get(i).getKey());
+                if (player == null) continue;
+                Bukkit.broadcastMessage(ChatColor.RED + String.valueOf(i + 1) + "위 " + player.getName() + " - " + String.format(Locale.ROOT, "%.1f", ranking.get(i).getValue()) + " 피해");
+            }
+            if (ranking.size() == 1) {
+                Player solo = Bukkit.getPlayer(ranking.get(0).getKey());
+                if (solo != null) {
+                    give(solo, createWitherDasher()); give(solo, createWitherLauncher()); give(solo, createWitherFrame()); solo.giveExp(2500);
+                }
+            } else {
+                for (int i = 0; i < ranking.size(); i++) {
+                    Player player = Bukkit.getPlayer(ranking.get(i).getKey());
+                    if (player == null) continue;
+                    if (i == 0) give(player, createWitherDasher());
+                    else if (i == 1) give(player, createWitherLauncher());
+                    else if (i == 2) give(player, createWitherFrame());
+                    else player.giveExp(1800);
+                }
+            }
+            cleanup(true);
+        }
+
+        void give(Player player, ItemStack item) {
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(item);
+            leftovers.values().forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+        }
+
+        void cleanup(boolean keepBossDeath) {
+            taskIds.forEach(Bukkit.getScheduler()::cancelTask);
+            bar.removeAll();
+            if (!keepBossDeath && boss.isValid()) boss.remove();
+        }
+    }
+
     private final class BossFight {
         private final Enderman boss;
         private final BossBar bar;
@@ -522,6 +1030,11 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
 
         void tick() {
             if (!isActive()) {
+                cleanup(false);
+                return;
+            }
+            if (allChallengersDown()) {
+                Bukkit.broadcastMessage(ChatColor.RED + "모든 파티원이 사망하여 끝의 숨결 레이드에 실패했습니다.");
                 cleanup(false);
                 return;
             }
@@ -566,11 +1079,16 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
 
 
         LivingEntity nearestChallenger(double range) {
-            return boss.getNearbyEntities(range, 24, range).stream()
-                .filter(entity -> entity instanceof Player player && challengers.contains(player.getUniqueId()))
-                .map(entity -> (LivingEntity) entity)
-                .min(Comparator.comparingDouble(entity -> entity.getLocation().distanceSquared(boss.getLocation())))
-                .orElse(null);
+            List<Player> candidates = challengers.stream()
+                .map(Bukkit::getPlayer)
+                .filter(player -> player != null && player.isOnline() && !player.isDead())
+                .filter(player -> player.getWorld().equals(boss.getWorld()))
+                .filter(player -> player.getLocation().distanceSquared(boss.getLocation()) <= range * range)
+                .collect(Collectors.toList());
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            return candidates.get(ThreadLocalRandom.current().nextInt(candidates.size()));
         }
 
         void retreatAndShootVoidProjectiles() {
@@ -777,9 +1295,15 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             boss.getWorld().playSound(destination, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.7f);
         }
 
+        boolean allChallengersDown() {
+            return challengers.stream()
+                .map(Bukkit::getPlayer)
+                .noneMatch(player -> player != null && player.isOnline() && !player.isDead() && player.getWorld().equals(boss.getWorld()));
+        }
+
         void spawnHostilePool(Location center, long durationTicks) {
             center.getWorld().playSound(center, Sound.BLOCK_RESPAWN_ANCHOR_DEPLETE, 0.8f, 0.7f);
-            new BukkitRunnable() {
+            int poolTaskId = new BukkitRunnable() {
                 int ticks;
                 @Override
                 public void run() {
@@ -794,7 +1318,8 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
                         cancel();
                     }
                 }
-            }.runTaskTimer(EndermanBossPlugin.this, 0L, 10L);
+            }.runTaskTimer(EndermanBossPlugin.this, 0L, 10L).getTaskId();
+            taskIds.add(poolTaskId);
         }
 
         void rewardAndCleanup() {
