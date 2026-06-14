@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -28,6 +29,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Enderman;
+import org.bukkit.entity.Endermite;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -60,6 +62,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
     private NamespacedKey bossKey;
     private NamespacedKey daggerKey;
     private NamespacedKey bootsKey;
+    private NamespacedKey voidProjectileKey;
     private BossFight fight;
     private final Map<UUID, Party> partiesByLeader = new HashMap<>();
     private final Map<UUID, UUID> memberToLeader = new HashMap<>();
@@ -73,6 +76,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         bossKey = new NamespacedKey(this, "enderman_boss");
         daggerKey = new NamespacedKey(this, "void_dagger");
         bootsKey = new NamespacedKey(this, "void_boots");
+        voidProjectileKey = new NamespacedKey(this, "void_projectile");
         Bukkit.getPluginManager().registerEvents(this, this);
         getCommand("bossspawn").setExecutor(this);
         getCommand("bossinfo").setExecutor(this);
@@ -146,7 +150,9 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
 
     private void sendBossInfo(CommandSender sender) {
         sender.sendMessage(ChatColor.LIGHT_PURPLE + "엔더맨 보스: 파티 인원에 비례해 체력과 페이즈 컷라인이 함께 증가합니다.");
-        sender.sendMessage(ChatColor.GRAY + "2페이즈 웅덩이 패턴은 약 8개의 공허 웅덩이를 소환합니다.");
+        sender.sendMessage(ChatColor.GRAY + "1페이즈: 뒤 텔레포트 공격, 후퇴 후 추적 공허탄 발사");
+        sender.sendMessage(ChatColor.GRAY + "2페이즈: 8개 웅덩이, 회귀 엔드마이트, 돌진, 8연속 텔레포트, 낙하 공허탄, 자폭 엔드마이트, 엔드 기둥");
+        sender.sendMessage(ChatColor.GRAY + "3페이즈: 30초 처치 제한, 충격파, 실패 시 보상 없음");
         sender.sendMessage(ChatColor.GRAY + "보스가 텔레포트할 때마다 이전 위치에 공허 웅덩이가 남습니다.");
         sender.sendMessage(ChatColor.GRAY + "처치 시 파티 기여도 순위에 따라 공허 단검, 공허 부츠, 경험치를 지급합니다.");
     }
@@ -283,6 +289,14 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             event.setDroppedExp(0);
             fight.rewardAndCleanup();
             fight = null;
+            return;
+        }
+        if (fight != null && event.getEntity().getPersistentDataContainer().has(voidProjectileKey, PersistentDataType.BYTE)) {
+            event.getDrops().clear();
+            event.setDroppedExp(0);
+            if (fight.isActive()) {
+                fight.boss.damage(14.0);
+            }
         }
     }
 
@@ -477,6 +491,8 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
         private final Map<UUID, Double> contribution = new HashMap<>();
         private final List<Integer> taskIds = new ArrayList<>();
         private final double maxHealth;
+        private boolean finalPhaseStarted;
+        private boolean rewardAllowed = true;
 
         BossFight(Enderman boss, BossBar bar, List<Player> challengers, double maxHealth) {
             this.boss = boss;
@@ -513,21 +529,223 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
             bar.setProgress(Math.min(1.0, progress));
             if (boss.getHealth() <= phaseThreeCutoff(maxHealth)) {
                 bar.setColor(BarColor.BLUE);
+                if (!finalPhaseStarted) {
+                    enterFinalPhase();
+                }
             } else if (boss.getHealth() <= phaseTwoCutoff(maxHealth)) {
                 bar.setColor(BarColor.RED);
             }
         }
 
         void usePattern() {
-            if (!isActive()) {
+            if (!isActive() || finalPhaseStarted) {
                 return;
             }
             double health = boss.getHealth();
-            if (health <= phaseTwoCutoff(maxHealth) && health > phaseThreeCutoff(maxHealth)) {
-                spawnEightPools();
-            } else {
-                teleportBehindNearest();
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            if (health > phaseTwoCutoff(maxHealth)) {
+                if (random.nextBoolean()) {
+                    teleportBehindNearest();
+                } else {
+                    retreatAndShootVoidProjectiles();
+                }
+                return;
             }
+            if (health > phaseThreeCutoff(maxHealth)) {
+                switch (random.nextInt(7)) {
+                    case 0 -> spawnEightPools();
+                    case 1 -> spawnReturnMites();
+                    case 2 -> chargeNearest();
+                    case 3 -> teleportCombo();
+                    case 4 -> fallingVoidProjectiles();
+                    case 5 -> spawnExplosiveMites();
+                    default -> endPillarAttack();
+                }
+            }
+        }
+
+
+        LivingEntity nearestChallenger(double range) {
+            return boss.getNearbyEntities(range, 24, range).stream()
+                .filter(entity -> entity instanceof Player player && challengers.contains(player.getUniqueId()))
+                .map(entity -> (LivingEntity) entity)
+                .min(Comparator.comparingDouble(entity -> entity.getLocation().distanceSquared(boss.getLocation())))
+                .orElse(null);
+        }
+
+        void retreatAndShootVoidProjectiles() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            Vector away = boss.getLocation().toVector().subtract(target.getLocation().toVector()).normalize();
+            pluginTeleport = true;
+            try {
+                boss.teleport(boss.getLocation().add(away.multiply(8)));
+            } finally {
+                pluginTeleport = false;
+            }
+            for (int i = 0; i < 4; i++) {
+                spawnVoidProjectile(boss.getEyeLocation().add(0, i * 0.25, 0), target);
+            }
+        }
+
+        void spawnVoidProjectile(Location start, LivingEntity target) {
+            Endermite mite = start.getWorld().spawn(start, Endermite.class, entity -> {
+                entity.setCustomName(ChatColor.DARK_PURPLE + "공허탄");
+                entity.setCustomNameVisible(true);
+                entity.setAI(false);
+                entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(10.0);
+                entity.setHealth(10.0);
+                entity.getPersistentDataContainer().set(voidProjectileKey, PersistentDataType.BYTE, (byte) 1);
+            });
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                if (!mite.isValid() || !isActive() || target.isDead()) {
+                    mite.remove();
+                    return;
+                }
+                Vector velocity = target.getLocation().add(0, 1, 0).toVector().subtract(mite.getLocation().toVector()).normalize().multiply(0.55);
+                mite.teleport(mite.getLocation().add(velocity));
+                mite.getWorld().spawnParticle(Particle.PORTAL, mite.getLocation(), 8, 0.15, 0.15, 0.15);
+                if (mite.getLocation().distanceSquared(target.getLocation()) < 2.25) {
+                    target.damage(8.0, boss);
+                    mite.remove();
+                }
+            }, 0L, 2L).getTaskId());
+        }
+
+        void spawnReturnMites() {
+            boss.damage(Math.min(30.0, Math.max(0.0, boss.getHealth() - phaseThreeCutoff(maxHealth) - 1.0)));
+            for (int i = 0; i < 15; i++) {
+                double angle = Math.PI * 2 * i / 15.0;
+                Location spawn = boss.getLocation().clone().add(Math.cos(angle) * 8, 0, Math.sin(angle) * 8);
+                Endermite mite = spawn.getWorld().spawn(spawn, Endermite.class, entity -> entity.setCustomName(ChatColor.LIGHT_PURPLE + "회귀 엔드마이트"));
+                taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                    if (!mite.isValid() || !isActive()) {
+                        mite.remove();
+                        return;
+                    }
+                    Vector step = boss.getLocation().toVector().subtract(mite.getLocation().toVector()).normalize().multiply(0.35);
+                    mite.setVelocity(step);
+                    if (mite.getLocation().distanceSquared(boss.getLocation()) < 3.0) {
+                        boss.setHealth(Math.min(maxHealth, boss.getHealth() + 5.0));
+                        mite.remove();
+                    }
+                }, 0L, 5L).getTaskId());
+            }
+        }
+
+        void chargeNearest() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            Vector velocity = target.getLocation().toVector().subtract(boss.getLocation().toVector()).normalize().multiply(1.8);
+            boss.setVelocity(velocity);
+            boss.getWorld().playSound(boss.getLocation(), Sound.ENTITY_ENDER_DRAGON_FLAP, 1.0f, 0.8f);
+        }
+
+        void teleportCombo() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            for (int i = 0; i < 8; i++) {
+                int delay = i * 8;
+                taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                    if (!isActive() || target.isDead()) {
+                        return;
+                    }
+                    teleportBehindNearest();
+                    if (boss.getLocation().distanceSquared(target.getLocation()) < 9.0) {
+                        target.damage(7.0, boss);
+                    }
+                }, delay).getTaskId());
+            }
+        }
+
+        void fallingVoidProjectiles() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            for (int i = 0; i < 6; i++) {
+                Location start = target.getLocation().clone().add(ThreadLocalRandom.current().nextDouble(-3, 3), 8 + i, ThreadLocalRandom.current().nextDouble(-3, 3));
+                spawnVoidProjectile(start, target);
+            }
+        }
+
+        void spawnExplosiveMites() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            for (int i = 0; i < 5; i++) {
+                Endermite mite = boss.getWorld().spawn(boss.getLocation().clone().add(i - 2, 0, 0), Endermite.class, entity -> entity.setCustomName(ChatColor.RED + "자폭 엔드마이트"));
+                taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                    if (!mite.isValid() || !isActive() || target.isDead()) {
+                        mite.remove();
+                        return;
+                    }
+                    mite.setVelocity(target.getLocation().toVector().subtract(mite.getLocation().toVector()).normalize().multiply(0.45));
+                    if (mite.getLocation().distanceSquared(target.getLocation()) < 4.0) {
+                        mite.getWorld().spawnParticle(Particle.EXPLOSION, mite.getLocation(), 2);
+                        for (Entity nearby : mite.getNearbyEntities(3, 3, 3)) {
+                            if (nearby instanceof LivingEntity living && !living.equals(boss)) {
+                                living.damage(10.0, boss);
+                            }
+                        }
+                        mite.remove();
+                    }
+                }, 0L, 5L).getTaskId());
+            }
+        }
+
+        void endPillarAttack() {
+            LivingEntity target = nearestChallenger(32);
+            if (target == null) {
+                return;
+            }
+            Location center = target.getLocation();
+            center.getWorld().spawnParticle(Particle.DUST, center, 90, 2.0, 0.1, 2.0, new Particle.DustOptions(Color.RED, 1.5f));
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                center.getWorld().spawnParticle(Particle.DRAGON_BREATH, center.clone().add(0, 3, 0), 160, 1.6, 3.0, 1.6, 0.02);
+                for (Entity nearby : center.getWorld().getNearbyEntities(center, 2.5, 6, 2.5)) {
+                    if (nearby instanceof LivingEntity living && !living.equals(boss)) {
+                        living.damage(8.0, boss);
+                    }
+                }
+            }, 30L).getTaskId());
+        }
+
+        void enterFinalPhase() {
+            finalPhaseStarted = true;
+            boss.setAI(false);
+            boss.setVelocity(new Vector(0, 0, 0));
+            Bukkit.broadcastMessage(ChatColor.DARK_PURPLE + "엔더맨 보스가 힘을 모읍니다! 30초 안에 처치하세요.");
+            taskIds.add(Bukkit.getScheduler().runTaskTimer(EndermanBossPlugin.this, () -> {
+                if (isActive()) {
+                    boss.getWorld().spawnParticle(Particle.SONIC_BOOM, boss.getLocation(), 2, 1.5, 0.5, 1.5);
+                    for (Entity nearby : boss.getNearbyEntities(8, 4, 8)) {
+                        if (nearby instanceof LivingEntity living && !living.equals(boss)) {
+                            living.setVelocity(living.getLocation().toVector().subtract(boss.getLocation().toVector()).normalize().multiply(1.2));
+                            living.damage(4.0, boss);
+                        }
+                    }
+                }
+            }, 0L, 160L).getTaskId());
+            taskIds.add(Bukkit.getScheduler().runTaskLater(EndermanBossPlugin.this, () -> {
+                if (!isActive()) {
+                    return;
+                }
+                rewardAllowed = false;
+                Location location = boss.getLocation();
+                location.getWorld().spawnParticle(Particle.EXPLOSION, location, 8, 2, 2, 2);
+                location.getWorld().createExplosion(location, 4.0f, false, false, boss);
+                boss.remove();
+                cleanup(true);
+                Bukkit.broadcastMessage(ChatColor.RED + "엔더맨 보스 처치에 실패했습니다. 보상은 지급되지 않습니다.");
+            }, 600L).getTaskId());
         }
 
         void spawnEightPools() {
@@ -592,6 +810,10 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener, Ta
                 .sorted(Map.Entry.<UUID, Double>comparingByValue().reversed())
                 .collect(Collectors.toList());
             announceContribution(ranking);
+            if (!rewardAllowed) {
+                cleanup(true);
+                return;
+            }
             if (ranking.size() == 1) {
                 Player solo = Bukkit.getPlayer(ranking.get(0).getKey());
                 if (solo != null) {
