@@ -4,7 +4,7 @@
 
 ## BAT 파일로 바로 JAR 만들기
 
-Windows에서 저장소 루트 폴더의 아래 파일을 더블클릭하면 JAR가 생성됩니다.
+Windows에서 저장소 루트 폴더의 아래 파일을 더블클릭하면 JAR가 생성됩니다. PC에 Gradle이 없어도 BAT 파일이 로컬 Gradle을 자동으로 다운로드해서 빌드합니다.
 
 ```text
 build_plugin.bat
@@ -16,13 +16,13 @@ CMD에서 직접 실행하려면 아래 명령어를 사용하세요.
 build_plugin.bat
 ```
 
-또는 배치 파일 없이 직접 Gradle을 실행하려면 아래 명령어를 사용하세요.
+이미 Gradle이 설치되어 있다면 배치 파일 없이 직접 아래 명령어를 사용해도 됩니다.
 
 ```cmd
 gradle clean build
 ```
 
-빌드가 성공하면 아래 경로에 Paper 플러그인 JAR가 생성됩니다.
+빌드가 성공하면 아래 경로에 Paper 플러그인 JAR가 생성됩니다. BAT 파일이 받은 로컬 Gradle과 ZIP 파일은 `.gradle-local/` 아래에만 저장되고 Git에는 포함되지 않습니다.
 
 ```text
 build\libs\enderman-boss-paper-1.0.0.jar
