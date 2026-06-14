@@ -7,13 +7,16 @@ import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.enchantments.Enchantment;
-import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Enderman;
+import org.bukkit.entity.Endermite;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
@@ -23,7 +26,9 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -36,6 +41,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,21 +52,29 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
     private static final String WEAPON_NAME = ChatColor.LIGHT_PURPLE + "공허의 단검";
     private static final double MAX_HEALTH = 500.0;
     private static final int STASIS_SECONDS = 30;
+    private static final double VOID_PROJECTILE_HEALTH = 10.0;
 
     private org.bukkit.NamespacedKey bossKey;
     private org.bukkit.NamespacedKey weaponKey;
+    private org.bukkit.NamespacedKey projectileKey;
     private UUID bossId;
     private int patternTask = -1;
     private int stasisTask = -1;
     private boolean stasisStarted;
     private boolean rewardAllowed = true;
+    private boolean allowBossTeleport;
+    private int currentPhase = 0;
+    private BossBar bossBar;
+    private final List<Integer> projectileTasks = new ArrayList<>();
 
     @Override
     public void onEnable() {
         bossKey = new org.bukkit.NamespacedKey(this, "enderman_boss");
         weaponKey = new org.bukkit.NamespacedKey(this, "void_dagger");
+        projectileKey = new org.bukkit.NamespacedKey(this, "void_projectile");
         Bukkit.getPluginManager().registerEvents(this, this);
-        Objects.requireNonNull(getCommand("endermanboss")).setExecutor(this);
+        Objects.requireNonNull(getCommand("bossspawn")).setExecutor(this);
+        Objects.requireNonNull(getCommand("bossinfo")).setExecutor(this);
     }
 
     @Override
@@ -70,17 +84,35 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (command.getName().equalsIgnoreCase("bossinfo")) {
+            if (args.length == 0 || !args[0].equalsIgnoreCase("enderman")) {
+                sender.sendMessage(ChatColor.YELLOW + "사용법: /bossinfo enderman");
+                return true;
+            }
+            sendBossInfo(sender);
+            return true;
+        }
+
         if (!(sender instanceof Player player)) {
             sender.sendMessage("플레이어만 사용할 수 있습니다.");
             return true;
         }
-        if (args.length == 0 || !args[0].equalsIgnoreCase("spawn")) {
-            player.sendMessage(ChatColor.YELLOW + "사용법: /endermanboss spawn");
+        if (args.length == 0 || !args[0].equalsIgnoreCase("enderman")) {
+            player.sendMessage(ChatColor.YELLOW + "사용법: /bossspawn enderman");
             return true;
         }
         spawnBoss(player.getLocation());
         player.sendMessage(ChatColor.GREEN + "엔더맨 보스를 소환했습니다!");
         return true;
+    }
+
+    private void sendBossInfo(CommandSender sender) {
+        sender.sendMessage(ChatColor.DARK_PURPLE + "[엔더맨 보스]");
+        sender.sendMessage(ChatColor.GRAY + "체력 500 / 보스바 페이즈별 색상 변경");
+        sender.sendMessage(ChatColor.LIGHT_PURPLE + "1페이즈(500~250): 뒤 텔레포트 공격, 도주 후 추적 공허탄 다중 발사");
+        sender.sendMessage(ChatColor.RED + "2페이즈(250~100): 매우 빠른 돌격 공격");
+        sender.sendMessage(ChatColor.BLUE + "3페이즈(100~0): 30초 정지, 피해 0.8배, 실패 시 보라색 폭발과 보상 없음");
+        sender.sendMessage(ChatColor.YELLOW + "공허탄 HP 10, 처치 시 엔더맨 보스에게 피해를 줍니다. 철퇴 피해는 0.6배입니다.");
     }
 
     private void spawnBoss(Location location) {
@@ -96,9 +128,14 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
         }
         boss.setHealth(MAX_HEALTH);
         boss.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, Integer.MAX_VALUE, 0, true, false));
+        boss.setTarget(null);
+        createBossBar(boss);
         bossId = boss.getUniqueId();
         stasisStarted = false;
         rewardAllowed = true;
+        allowBossTeleport = false;
+        currentPhase = 0;
+        setPhase(boss, 1);
         patternTask = Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> tickBoss(boss), 40L, 60L);
     }
 
@@ -108,9 +145,12 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
             return;
         }
         double health = boss.getHealth();
+        updateBossBar(boss);
         if (health <= 100.0) {
+            setPhase(boss, 3);
             startStasis(boss);
         } else if (health <= 250.0) {
+            setPhase(boss, 2);
             phaseTwoCharge(boss);
         } else if (Math.random() < 0.5) {
             phaseOneBackstab(boss);
@@ -122,7 +162,7 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
     private void phaseOneBackstab(Enderman boss) {
         nearestTarget(boss, 32).ifPresent(target -> {
             Location behind = behind(target, 1.5);
-            boss.teleport(behind);
+            teleportBoss(boss, behind);
             boss.getWorld().spawnParticle(Particle.PORTAL, behind, 80, 0.7, 1.0, 0.7, 0.2);
             boss.getWorld().playSound(behind, Sound.ENTITY_ENDERMAN_TELEPORT, 1.2f, 0.7f);
             target.damage(12.0, boss);
@@ -134,12 +174,11 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
             Vector away = boss.getLocation().toVector().subtract(target.getLocation().toVector()).normalize().multiply(8);
             Location retreat = boss.getLocation().add(away);
             retreat.setY(Math.max(retreat.getWorld().getMinHeight() + 2, retreat.getY()));
-            boss.teleport(retreat);
+            teleportBoss(boss, retreat);
             boss.getWorld().playSound(retreat, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.2f);
-            Arrow arrow = boss.launchProjectile(Arrow.class);
-            arrow.setVelocity(target.getEyeLocation().toVector().subtract(boss.getEyeLocation().toVector()).normalize().multiply(2.1));
-            arrow.setDamage(9.0);
-            arrow.setPickupStatus(Arrow.PickupStatus.DISALLOWED);
+            for (int i = 0; i < 4; i++) {
+                spawnVoidProjectile(boss, target, i);
+            }
         });
     }
 
@@ -197,10 +236,93 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    private void createBossBar(Enderman boss) {
+        if (bossBar != null) {
+            bossBar.removeAll();
+        }
+        bossBar = Bukkit.createBossBar(BOSS_NAME, BarColor.PURPLE, BarStyle.SEGMENTED_10);
+        bossBar.setVisible(true);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            bossBar.addPlayer(player);
+        }
+        updateBossBar(boss);
+    }
+
+    private void updateBossBar(Enderman boss) {
+        if (bossBar == null || !boss.isValid()) {
+            return;
+        }
+        bossBar.setProgress(Math.max(0.0, Math.min(1.0, boss.getHealth() / MAX_HEALTH)));
+        bossBar.setTitle(BOSS_NAME + ChatColor.WHITE + " " + (int) Math.ceil(boss.getHealth()) + "/" + (int) MAX_HEALTH + " HP");
+    }
+
+    private void setPhase(Enderman boss, int phase) {
+        if (currentPhase == phase) {
+            return;
+        }
+        currentPhase = phase;
+        if (bossBar != null) {
+            bossBar.setColor(phase == 1 ? BarColor.PURPLE : phase == 2 ? BarColor.RED : BarColor.BLUE);
+        }
+        Location location = boss.getLocation().add(0, 1, 0);
+        boss.getWorld().spawnParticle(phase == 1 ? Particle.PORTAL : phase == 2 ? Particle.FLAME : Particle.DRAGON_BREATH, location, 180, 1.8, 1.8, 1.8, 0.15);
+        boss.getWorld().playSound(location, phase == 1 ? Sound.ENTITY_ENDERMAN_SCREAM : phase == 2 ? Sound.ENTITY_WITHER_SPAWN : Sound.ENTITY_ENDER_DRAGON_GROWL, 1.5f, 0.7f);
+    }
+
+    private void teleportBoss(Enderman boss, Location location) {
+        allowBossTeleport = true;
+        boss.teleport(location);
+        allowBossTeleport = false;
+    }
+
+    private void spawnVoidProjectile(Enderman boss, LivingEntity target, int offset) {
+        Location spawn = boss.getEyeLocation().add(boss.getLocation().getDirection().normalize().multiply(0.8));
+        Endermite projectile = (Endermite) boss.getWorld().spawnEntity(spawn, EntityType.ENDERMITE);
+        projectile.setCustomName(ChatColor.DARK_PURPLE + "추적 공허탄");
+        projectile.setCustomNameVisible(true);
+        projectile.setRemoveWhenFarAway(false);
+        projectile.setAI(false);
+        projectile.getPersistentDataContainer().set(projectileKey, PersistentDataType.BYTE, (byte) 1);
+        AttributeInstance maxHealth = projectile.getAttribute(Attribute.MAX_HEALTH);
+        if (maxHealth != null) {
+            maxHealth.setBaseValue(VOID_PROJECTILE_HEALTH);
+        }
+        projectile.setHealth(VOID_PROJECTILE_HEALTH);
+        projectileTasks.add(Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> tickVoidProjectile(projectile, boss, target), offset * 5L, 2L));
+    }
+
+    private void tickVoidProjectile(Endermite projectile, Enderman boss, LivingEntity target) {
+        if (!projectile.isValid() || projectile.isDead() || !boss.isValid() || boss.isDead()) {
+            projectile.remove();
+            return;
+        }
+        LivingEntity currentTarget = target.isValid() && !target.isDead() ? target : nearestTarget(boss, 40).orElse(null);
+        if (currentTarget == null) {
+            projectile.remove();
+            return;
+        }
+        Vector direction = currentTarget.getEyeLocation().toVector().subtract(projectile.getLocation().toVector()).normalize();
+        projectile.setVelocity(direction.multiply(0.75));
+        projectile.getWorld().spawnParticle(Particle.REVERSE_PORTAL, projectile.getLocation(), 8, 0.15, 0.15, 0.15, 0.03);
+        if (projectile.getLocation().distanceSquared(currentTarget.getLocation()) < 1.6) {
+            currentTarget.damage(8.0, boss);
+            projectile.getWorld().spawnParticle(Particle.DRAGON_BREATH, projectile.getLocation(), 25, 0.4, 0.4, 0.4, 0.06);
+            projectile.remove();
+        }
+    }
+
     @EventHandler
     public void onDamage(EntityDamageEvent event) {
-        if (isBoss(event.getEntity()) && stasisStarted) {
+        if (!isBoss(event.getEntity())) {
+            return;
+        }
+        if (stasisStarted) {
             event.setDamage(event.getDamage() * 0.8);
+        }
+        if (event instanceof EntityDamageByEntityEvent byEntity
+                && byEntity.getDamager() instanceof Player player
+                && player.getInventory().getItemInMainHand().getType() == Material.MACE) {
+            event.setDamage(event.getDamage() * 0.6);
         }
     }
 
@@ -217,6 +339,12 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onDeath(EntityDeathEvent event) {
+        if (isVoidProjectile(event.getEntity())) {
+            event.getDrops().clear();
+            event.setDroppedExp(0);
+            getBoss().ifPresent(boss -> boss.damage(14.0));
+            return;
+        }
         if (!isBoss(event.getEntity())) {
             return;
         }
@@ -226,6 +354,13 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
         if (rewardAllowed) {
             event.getDrops().add(createWeapon());
             Bukkit.broadcastMessage(ChatColor.LIGHT_PURPLE + "엔더맨 보스 처치 성공! 공허의 단검이 드랍되었습니다.");
+        }
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        if (bossBar != null) {
+            bossBar.addPlayer(event.getPlayer());
         }
     }
 
@@ -283,6 +418,28 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
         return behind;
     }
 
+    @EventHandler
+    public void onTeleport(EntityTeleportEvent event) {
+        if (isBoss(event.getEntity()) && !allowBossTeleport) {
+            event.setCancelled(true);
+        }
+    }
+
+    private Optional<Enderman> getBoss() {
+        if (bossId == null) {
+            return Optional.empty();
+        }
+        Entity entity = Bukkit.getEntity(bossId);
+        if (entity instanceof Enderman enderman && enderman.isValid() && !enderman.isDead()) {
+            return Optional.of(enderman);
+        }
+        return Optional.empty();
+    }
+
+    private boolean isVoidProjectile(Entity entity) {
+        return entity instanceof Endermite && entity.getPersistentDataContainer().has(projectileKey, PersistentDataType.BYTE);
+    }
+
     private boolean isBoss(Entity entity) {
         if (!(entity instanceof Enderman)) {
             return false;
@@ -292,6 +449,14 @@ public final class EndermanBossPlugin extends JavaPlugin implements Listener {
     }
 
     private void cancelTasks() {
+        if (bossBar != null) {
+            bossBar.removeAll();
+            bossBar = null;
+        }
+        for (int taskId : projectileTasks) {
+            Bukkit.getScheduler().cancelTask(taskId);
+        }
+        projectileTasks.clear();
         if (patternTask != -1) {
             Bukkit.getScheduler().cancelTask(patternTask);
             patternTask = -1;
