@@ -1,0 +1,18 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.example'
+version = '1.0.0'
+
+def paperApiVersion = '1.21.11-R0.1-SNAPSHOT'
+
+
+dependencies {
+    compileOnly "io.papermc.paper:paper-api:${paperApiVersion}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
