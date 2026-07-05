@@ -93,3 +93,35 @@ python -m http.server 8000
 - `lane`: 0~3 (4키)
 
 > 샘플 오디오는 포함되어 있지 않습니다. `songs/sample/sample.ogg` 파일을 직접 넣어주세요.
+
+## OpenCV 이미지 보정 EXE 만들기 (Windows)
+사용자가 제공한 C++ OpenCV 이미지 보정 코드는 `tools/opencv_image_enhancer.cpp`에 저장되어 있습니다.
+
+### 준비물
+- Visual Studio C++ 빌드 도구
+- OpenCV Windows 빌드
+- `x64 Native Tools Command Prompt for VS`
+
+### 빌드 방법
+1. OpenCV가 설치된 경로를 `OPENCV_DIR`로 지정합니다.
+   ```bat
+   set OPENCV_DIR=C:\opencv\build\x64\vc16
+   ```
+2. OpenCV DLL을 실행 경로에서 찾을 수 있게 `PATH`에 추가합니다.
+   ```bat
+   set PATH=%OPENCV_DIR%\bin;%PATH%
+   ```
+3. 저장소 루트에서 배치 파일을 실행합니다.
+   ```bat
+   build_image_enhancer.bat
+   ```
+4. 결과물은 `dist\ImageEnhancer.exe`로 생성됩니다.
+
+### 실행 방법
+- 이미지 파일을 `dist\ImageEnhancer.exe`에 드래그 앤 드롭하거나,
+- 명령 프롬프트에서 아래처럼 실행합니다.
+  ```bat
+  dist\ImageEnhancer.exe C:\path\to\photo.jpg
+  ```
+
+결과 파일은 원본 이미지와 같은 폴더에 `_result_gray.jpg`, `_result_color.jpg` 이름으로 저장됩니다.
