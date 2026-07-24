@@ -1,0 +1,3 @@
+scoreboard players set @s 신체 0
+tellraw @s [{"text":"[신체 상태] ","color":"gold","bold":true},{"text":"몸 ","color":"red"},{"score":{"name":"@s","objective":"shc_body"}},{"text":" / 왼팔 ","color":"yellow"},{"score":{"name":"@s","objective":"shc_left_arm"}},{"text":" / 오른팔 ","color":"yellow"},{"score":{"name":"@s","objective":"shc_right_arm"}},{"text":" / 왼다리 ","color":"aqua"},{"score":{"name":"@s","objective":"shc_left_leg"}},{"text":" / 오른다리 ","color":"aqua"},{"score":{"name":"@s","objective":"shc_right_leg"}}]
+tellraw @s {"text":"명령어: /trigger 하트강화 = 하트의 정수 사용, /trigger 붕대사용 = 붕대 사용","color":"gray"}

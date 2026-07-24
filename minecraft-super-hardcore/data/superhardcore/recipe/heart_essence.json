@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "minecraft:red_dye",
+    "minecraft:gold_nugget"
+  ],
+  "result": {
+    "id": "minecraft:heart_of_the_sea",
+    "count": 1,
+    "components": {
+      "minecraft:custom_name": "{\"text\":\"하트의 정수\",\"color\":\"red\",\"italic\":false}",
+      "minecraft:lore": ["{\"text\":\"/trigger 하트강화 로 최대 체력을 1칸 올립니다.\",\"color\":\"gray\",\"italic\":false}"],
+      "minecraft:custom_data": {"superhardcore":{"heart_essence":true}}
+    }
+  }
+}

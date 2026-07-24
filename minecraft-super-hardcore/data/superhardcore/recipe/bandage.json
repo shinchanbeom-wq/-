@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "#minecraft:wool",
+    "#minecraft:wool"
+  ],
+  "result": {
+    "id": "minecraft:paper",
+    "count": 1,
+    "components": {
+      "minecraft:custom_name": "{\"text\":\"붕대\",\"color\":\"white\",\"italic\":false}",
+      "minecraft:lore": ["{\"text\":\"/trigger 붕대사용 으로 신체 내구도를 회복합니다.\",\"color\":\"gray\",\"italic\":false}"],
+      "minecraft:custom_data": {"superhardcore":{"bandage":true}}
+    }
+  }
+}
