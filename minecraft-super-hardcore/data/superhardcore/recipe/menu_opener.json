@@ -6,9 +6,11 @@
     "id": "minecraft:carrot_on_a_stick",
     "count": 1,
     "components": {
-      "minecraft:custom_name": "{\"text\":\"신체 메뉴\",\"color\":\"gold\",\"italic\":false}",
-      "minecraft:lore": ["{\"text\":\"Shift+우클릭으로 메뉴를 엽니다.\",\"color\":\"gray\",\"italic\":false}"],
-      "minecraft:custom_data": {"superhardcore":{"menu_opener":true}}
+      "minecraft:item_name": {"text": "신체 메뉴", "color": "gold"},
+      "minecraft:lore": [
+        {"text": "Shift+우클릭으로 메뉴를 엽니다.", "color": "gray", "italic": false}
+      ],
+      "minecraft:custom_data": {"superhardcore": {"menu_opener": true}}
     }
   }
 }
