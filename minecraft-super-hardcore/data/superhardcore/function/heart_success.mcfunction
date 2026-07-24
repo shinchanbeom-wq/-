@@ -1,4 +1,4 @@
-clear @s minecraft:heart_of_the_sea[minecraft:custom_data~{superhardcore:{heart_essence:1b}}] 1
+clear @s minecraft:warped_fungus_on_a_stick[minecraft:custom_data~{superhardcore:{heart_essence:1b}}] 1
 scoreboard players add @s shc_hp 2
 execute if score @s shc_hp matches 40.. run scoreboard players set @s shc_hp 40
 execute if score @s shc_hp matches 8 run attribute @s minecraft:max_health base set 8
