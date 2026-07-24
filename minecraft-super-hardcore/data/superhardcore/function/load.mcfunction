@@ -5,7 +5,6 @@ scoreboard objectives add shc_hp dummy
 scoreboard objectives add shc_weight dummy
 scoreboard objectives add shc_hurt_cd dummy
 scoreboard objectives add shc_heart_used minecraft.used:minecraft.warped_fungus_on_a_stick
-scoreboard objectives add shc_menu_used minecraft.used:minecraft.carrot_on_a_stick
 scoreboard objectives add shc_spider_kills minecraft.killed:minecraft.spider
 scoreboard objectives add 신체 trigger
 scoreboard objectives add 하트강화 trigger

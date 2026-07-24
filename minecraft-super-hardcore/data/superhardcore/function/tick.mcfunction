@@ -16,9 +16,7 @@ execute as @a[scores={하트강화=1..}] run function superhardcore:use_heart_es
 execute as @a[scores={붕대사용=1..}] run function superhardcore:use_bandage
 execute as @a[scores={메뉴=1..}] run function superhardcore:menu
 execute as @a[scores={shc_heart_used=1..}] run function superhardcore:use_heart_essence
-execute as @a[scores={shc_menu_used=1..}] at @s if entity @s[nbt={Pose:"CROUCHING"}] run function superhardcore:menu
 scoreboard players set @a[scores={shc_heart_used=1..}] shc_heart_used 0
-scoreboard players set @a[scores={shc_menu_used=1..}] shc_menu_used 0
 
 # One-life rule: after a death, the player becomes a spectator.
 execute as @a[scores={shc_deaths=1..}] run function superhardcore:death
