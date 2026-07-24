@@ -24,6 +24,7 @@ scoreboard players set @a[scores={shc_menu_used=1..}] shc_menu_used 0
 execute as @a[scores={shc_deaths=1..}] run function superhardcore:death
 
 # Recompute inventory weight and penalties.
+execute as @a[tag=shc_initialized,gamemode=!spectator,gamemode=!creative] run function superhardcore:health_sync
 execute as @a[tag=shc_initialized,gamemode=!spectator,gamemode=!creative] run function superhardcore:injury
 execute as @a[tag=shc_initialized,gamemode=!spectator,gamemode=!creative] run function superhardcore:weight
 execute as @a[tag=shc_initialized,gamemode=!spectator,gamemode=!creative] run function superhardcore:limb_effects
