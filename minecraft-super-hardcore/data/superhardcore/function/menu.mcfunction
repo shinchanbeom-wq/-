@@ -1,0 +1,2 @@
+scoreboard players set @s 메뉴 0
+tellraw @s [{"text":"[Super Hardcore 메뉴]","color":"gold","bold":true},{"text":"\n▶ 신체 상태","color":"aqua","clickEvent":{"action":"run_command","value":"/trigger 신체"},"hoverEvent":{"action":"show_text","contents":"몸/팔/다리 내구도 확인"}},{"text":"\n▶ 하트의 정수 사용","color":"red","clickEvent":{"action":"run_command","value":"/trigger 하트강화"},"hoverEvent":{"action":"show_text","contents":"최대 체력 증가"}},{"text":"\n▶ 붕대 사용","color":"green","clickEvent":{"action":"run_command","value":"/trigger 붕대사용"},"hoverEvent":{"action":"show_text","contents":"신체 내구도 회복"}}]

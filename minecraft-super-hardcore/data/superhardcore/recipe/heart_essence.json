@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": ["minecraft:red_dye", "minecraft:gold_nugget"],
+  "result": {
+    "id": "minecraft:warped_fungus_on_a_stick",
+    "count": 1,
+    "components": {
+      "minecraft:item_name": {"text": "하트의 정수", "color": "red"},
+      "minecraft:lore": [
+        {"text": "우클릭으로 최대 체력을 1칸 올립니다.", "color": "gray", "italic": false}
+      ],
+      "minecraft:custom_data": {"superhardcore": {"heart_essence": true}}
+    }
+  }
+}
