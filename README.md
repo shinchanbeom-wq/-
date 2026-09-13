@@ -1,95 +1,45 @@
-# 4K Rhythm Game Prototype
+# FreeVR-SBS
 
-브라우저/EXE로 실행 가능한 4키 리듬게임 프로토타입입니다.
+Android 공개 API만 사용하여 화면 캡처를 기기 안에서 OpenGL ES 기반 좌우 분할(SBS) 화면으로 표시하는 무료 Kotlin 프로젝트입니다. 기본 UI 언어는 한국어입니다.
 
-## 기능
-- 타이틀 화면에서 **곡 선택/설정** 이동
-- 설정에서
-  - 음악 보정(ms)
-  - 4레인 키 설정
-- 곡 선택 후 게임 플레이
-- 판정: 완벽/좋음/나쁨/최악/놓침
-- 판정 기반 점수 및 콤보
-- 곡/채보를 JSON 파일로 분리하여 커스텀 가능
+## 빌드 방법
+Android Studio에서 이 폴더를 열고 Gradle 동기화를 완료한 뒤 `app`의 `assembleDebug` 작업을 실행합니다. Android SDK Platform 35와 JDK 17이 필요합니다.
 
-## 빠른 실행 (개발)
-정적 서버로 실행하세요 (fetch 사용).
-
-```bash
-python -m http.server 8000
+### Windows CMD
+```cmd
+cd /d D:\FreeVR-SBS
+gradlew.bat assembleDebug
+dir app\build\outputs\apk\debug\app-debug.apk
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+SDK/ADB가 PATH에 없으면 다음과 같이 설정합니다.
+```cmd
+set ANDROID_SDK_ROOT=%LOCALAPPDATA%\Android\Sdk
+set PATH=%ANDROID_SDK_ROOT%\platform-tools;%PATH%
+adb devices
 ```
 
-브라우저에서 `http://localhost:8000` 접속.
+## 설치 방법 및 최초 실행
+1. Android Studio에서 프로젝트를 열고 Gradle을 동기화합니다.
+2. 디버그 APK를 빌드하고 USB 디버깅을 켠 기기에 설치합니다.
+3. 앱을 열어 안내를 읽은 뒤 **시작하기**를 누릅니다.
+4. **VR 시작**을 누르고 시스템의 **화면 캡처 권한**을 허용합니다.
+5. 필요할 때 앱이 요청하는 블루투스 권한을 허용합니다.
+6. VR 화면이 나타나면 휴대폰을 Cardboard 형태의 VR 고글에 장착합니다.
 
-## 간단 설치용 EXE 만들기 (Windows)
-아래 배치 파일만 실행하면 됩니다.
+## 블루투스 입력 장치 연결 방법
+1. Android 설정의 블루투스에서 키보드, 마우스, 리모컨 또는 HID 장치를 페어링합니다.
+2. FreeVR-SBS에서 **블루투스 입력**을 열고 연결된 장치가 표시되는지 확인합니다.
+3. **입력 테스트**에서 장치의 키나 버튼을 눌러 Android가 이벤트를 제공하는지 확인합니다.
+4. 이후 키 매핑 화면에서 지원되는 VR 동작에 매핑합니다. Android가 노출하는 HID 입력만 감지합니다.
 
-1. `build_exe.bat` 더블클릭
-2. 완료 후 `dist/Rhythm4K.exe` 실행
+## 접근성 및 보안 제한
+접근성 서비스는 시스템 설정에서 사용자가 직접 활성화해야 합니다. 서비스는 접근성 노드가 제공하는 클릭, 스크롤, 포커스와 공식 전역 동작만 수행할 수 있습니다. Unity, Unreal, OpenGL/Vulkan 기반 게임처럼 접근성 노드를 제공하지 않는 앱은 조작할 수 없습니다.
 
-`build_exe.bat`가 자동으로 하는 작업:
-- 가상환경 생성
-- 의존성 설치
-- 단일 실행파일(One-file) 빌드
+MediaProjection은 화면을 캡처할 뿐 다른 앱으로 임의의 터치를 주입하지 않습니다. 루트, 숨겨진 API, 우회 기법은 사용하지 않습니다. 캡처 프레임은 외부 서버로 전송되지 않습니다.
 
+## Android 14+
+캡처는 `mediaProjection` 유형의 포그라운드 서비스로 실행되며, 매번 시스템 화면 캡처 동의를 받아 사용합니다. Android 14 이상에서 요구하는 포그라운드 서비스 및 MediaProjection 수명 주기를 따릅니다.
 
-
-## 원터치 셋업 방법 (Windows)
-아래 파일 하나만 실행하면 **빌드 + 설치파일 생성**까지 자동으로 진행됩니다.
-
-1. `one_touch_setup.bat` 더블클릭
-2. 완료 후 `dist/Rhythm4K-Setup.exe` 배포
-
-동작 순서:
-- `build_exe.bat` 실행
-- Inno Setup 6 없으면 `winget`으로 자동 설치 시도
-- `build_installer.bat` 실행
-
-> 참고: `winget`이 막힌 환경에서는 Inno Setup 수동 설치가 필요합니다.
-
-## 설치 프로그램(.exe) 만들기 (권장)
-`dist/Rhythm4K.exe`를 만든 뒤, 설치 마법사 EXE까지 생성할 수 있습니다.
-
-1. `build_exe.bat` 실행
-2. [Inno Setup 6](https://jrsoftware.org/isdl.php) 설치
-3. `build_installer.bat` 실행
-4. 결과물: `dist/Rhythm4K-Setup.exe`
-
-설치 프로그램 기능:
-- 기본 설치 경로 선택
-- 시작 메뉴 바로가기 생성
-- 바탕화면 바로가기 선택 생성
-
-## 커스텀 곡 추가
-1. `songs/<song-id>/song.json` 생성
-2. `songs/<song-id>/chart.json` 생성
-3. `songs/index.json` 배열에 `songs/<song-id>/song.json` 경로 추가
-
-### song.json 예시
-```json
-{
-  "id": "sample",
-  "title": "Sample Beat",
-  "artist": "Demo Composer",
-  "audio": "songs/sample/sample.ogg",
-  "bpm": 120,
-  "offsetMs": 0,
-  "chart": "songs/sample/chart.json"
-}
-```
-
-### chart.json 예시
-```json
-{
-  "difficulty": "Normal",
-  "notes": [
-    {"timeMs": 1000, "lane": 0},
-    {"timeMs": 1500, "lane": 1}
-  ]
-}
-```
-
-- `timeMs`: 곡 시작 기준 노트 타이밍(ms)
-- `lane`: 0~3 (4키)
-
-> 샘플 오디오는 포함되어 있지 않습니다. `songs/sample/sample.ogg` 파일을 직접 넣어주세요.
+## 현재 기능과 향후 깊이 처리
+현재 모드는 동일한 2D 캡처 프레임을 두 눈에 그리는 **2D SBS**이며 실제 입체 3D가 아닙니다. `depth/DepthProcessor.kt`는 장치 내 TensorFlow Lite, ONNX Runtime 등의 미래 깊이 추정기를 연결할 인터페이스입니다. 깊이 맵을 생성한 뒤 눈별 재투영 렌더러를 구현하면 AI 2D→3D 모드를 추가할 수 있습니다. 클라우드 AI는 사용하지 않습니다.
