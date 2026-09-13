@@ -1,17 +1,116 @@
 package com.freevrsbs.vr
+
 import android.graphics.SurfaceTexture
-import android.opengl.*
-import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.opengles.GL10
+import android.opengl.GLES11Ext
+import android.opengl.GLES30
+import android.opengl.GLSurfaceView
 import android.view.Surface
 import java.nio.ByteBuffer
-object CaptureSurfaceRegistry { @Volatile var surface:Surface?=null }
-class VRRenderer(private val onReady:(Surface)->Unit):GLSurfaceView.Renderer {
- private var texture=0; private var st:SurfaceTexture?=null; private var program=0; private var changed=false; private var frames=0; var fps=0; private var tick=System.nanoTime()
- override fun onSurfaceCreated(gl:GL10?,config:EGLConfig?){ texture=createTexture(); st=SurfaceTexture(texture).also { it.setOnFrameAvailableListener { changed=true } }; val surface=Surface(st);CaptureSurfaceRegistry.surface=surface;onReady(surface);program=program() }
- override fun onSurfaceChanged(gl:GL10?,w:Int,h:Int){ GLES30.glViewport(0,0,w,h) }
- override fun onDrawFrame(gl:GL10?){ if(changed){st?.updateTexImage();changed=false}; GLES30.glClearColor(0f,0f,0f,1f);GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT); GLES30.glUseProgram(program);GLES30.glActiveTexture(GLES30.GL_TEXTURE0);GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,texture); val p=GLES30.glGetAttribLocation(program,"p");val uv=GLES30.glGetAttribLocation(program,"uv"); val vertices=floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f); val tex=floatArrayOf(0f,1f,1f,1f,0f,0f,1f,0f); val vb=ByteBuffer.allocateDirect(32).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer().put(vertices);vb.position(0);val tb=ByteBuffer.allocateDirect(32).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer().put(tex);tb.position(0);GLES30.glEnableVertexAttribArray(p);GLES30.glVertexAttribPointer(p,2,GLES30.GL_FLOAT,false,0,vb);GLES30.glEnableVertexAttribArray(uv);GLES30.glVertexAttribPointer(uv,2,GLES30.GL_FLOAT,false,0,tb); val w=GLES30.glGetIntegervArray(GLES30.GL_VIEWPORT,2); GLES30.glViewport(0,0,w[2]/2,w[3]);GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP,0,4);GLES30.glViewport(w[2]/2,0,w[2]/2,w[3]);GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP,0,4);frames++; val now=System.nanoTime();if(now-tick>1_000_000_000L){fps=frames;frames=0;tick=now} }
- private fun createTexture():Int { val a=IntArray(1);GLES30.glGenTextures(1,a,0);GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,a[0]);GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES30.GL_TEXTURE_MIN_FILTER,GLES30.GL_LINEAR);GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,GLES30.GL_TEXTURE_MAG_FILTER,GLES30.GL_LINEAR);return a[0] }
- private fun program():Int { fun shader(t:Int,s:String)=GLES30.glCreateShader(t).also{GLES30.glShaderSource(it,s);GLES30.glCompileShader(it)};val v=shader(GLES30.GL_VERTEX_SHADER,"attribute vec2 p;attribute vec2 uv;varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(p,0.,1.);}");val f=shader(GLES30.GL_FRAGMENT_SHADER,"#extension GL_OES_EGL_image_external : require\nprecision mediump float;varying vec2 vUv;uniform samplerExternalOES s;void main(){gl_FragColor=texture2D(s,vUv);}");return GLES30.glCreateProgram().also{GLES30.glAttachShader(it,v);GLES30.glAttachShader(it,f);GLES30.glLinkProgram(it)} }
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.opengles.GL10
+
+object CaptureSurfaceRegistry {
+    @Volatile var surface: Surface? = null
 }
-private fun GLES30.glGetIntegervArray(p:Int,n:Int):IntArray=IntArray(4).also{GLES30.glGetIntegerv(p,it,0)}
+
+/** Renders the captured external texture once into each half of the display. */
+class VRRenderer(private val onReady: (Surface) -> Unit) : GLSurfaceView.Renderer {
+    private var textureId = 0
+    private var surfaceTexture: SurfaceTexture? = null
+    private var programId = 0
+    @Volatile private var frameAvailable = false
+    private var frames = 0
+    var fps = 0
+        private set
+    private var fpsStartNanos = System.nanoTime()
+
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        textureId = createExternalTexture()
+        surfaceTexture = SurfaceTexture(textureId).also { texture ->
+            texture.setOnFrameAvailableListener { frameAvailable = true }
+            val captureSurface = Surface(texture)
+            CaptureSurfaceRegistry.surface = captureSurface
+            onReady(captureSurface)
+        }
+        programId = createProgram()
+    }
+
+    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        GLES30.glViewport(0, 0, width, height)
+    }
+
+    override fun onDrawFrame(gl: GL10?) {
+        if (frameAvailable) {
+            surfaceTexture?.updateTexImage()
+            frameAvailable = false
+        }
+        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+        GLES30.glUseProgram(programId)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
+
+        val position = GLES30.glGetAttribLocation(programId, "aPosition")
+        val texCoord = GLES30.glGetAttribLocation(programId, "aTexCoord")
+        GLES30.glEnableVertexAttribArray(position)
+        GLES30.glVertexAttribPointer(position, 2, GLES30.GL_FLOAT, false, 0, POSITIONS)
+        GLES30.glEnableVertexAttribArray(texCoord)
+        GLES30.glVertexAttribPointer(texCoord, 2, GLES30.GL_FLOAT, false, 0, TEX_COORDS)
+
+        val viewport = IntArray(4)
+        GLES30.glGetIntegerv(GLES30.GL_VIEWPORT, viewport, 0)
+        val halfWidth = viewport[2] / 2
+        GLES30.glViewport(0, 0, halfWidth, viewport[3])
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+        GLES30.glViewport(halfWidth, 0, viewport[2] - halfWidth, viewport[3])
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+
+        frames += 1
+        val now = System.nanoTime()
+        if (now - fpsStartNanos >= 1_000_000_000L) {
+            fps = frames
+            frames = 0
+            fpsStartNanos = now
+        }
+    }
+
+    private fun createExternalTexture(): Int = IntArray(1).also { texture ->
+        GLES30.glGenTextures(1, texture, 0)
+        GLES30.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture[0])
+        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+    }[0]
+
+    private fun createProgram(): Int {
+        val vertex = compileShader(GLES30.GL_VERTEX_SHADER, VERTEX_SHADER)
+        val fragment = compileShader(GLES30.GL_FRAGMENT_SHADER, FRAGMENT_SHADER)
+        return GLES30.glCreateProgram().also { program ->
+            GLES30.glAttachShader(program, vertex)
+            GLES30.glAttachShader(program, fragment)
+            GLES30.glLinkProgram(program)
+        }
+    }
+
+    private fun compileShader(type: Int, source: String): Int = GLES30.glCreateShader(type).also { shader ->
+        GLES30.glShaderSource(shader, source)
+        GLES30.glCompileShader(shader)
+    }
+
+    private companion object {
+        fun buffer(values: FloatArray): FloatBuffer = ByteBuffer.allocateDirect(values.size * 4)
+            .order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
+        val POSITIONS = buffer(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
+        val TEX_COORDS = buffer(floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f))
+        const val VERTEX_SHADER = """#version 300 es
+            in vec2 aPosition; in vec2 aTexCoord; out vec2 vTexCoord;
+            void main() { vTexCoord = aTexCoord; gl_Position = vec4(aPosition, 0.0, 1.0); }"""
+        const val FRAGMENT_SHADER = """#version 300 es
+            #extension GL_OES_EGL_image_external_essl3 : require
+            precision mediump float; in vec2 vTexCoord; uniform samplerExternalOES uTexture; out vec4 outColor;
+            void main() { outColor = texture(uTexture, vTexCoord); }"""
+    }
+}

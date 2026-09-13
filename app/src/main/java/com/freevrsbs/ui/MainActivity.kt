@@ -1,6 +1,7 @@
 package com.freevrsbs.ui
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.*
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -22,7 +23,7 @@ class MainActivity:Activity(){ private lateinit var root:LinearLayout;private va
  private fun stopVr(){ tracker?.stop();tracker=null;stopService(Intent(this,CaptureService::class.java));window.insetsController?.show(WindowInsets.Type.systemBars());window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);home() }
  private fun requestCapture(){ val manager=getSystemService(MediaProjectionManager::class.java);startActivityForResult(manager.createScreenCaptureIntent(),captureRequest) }
  @Deprecated("Deprecated in Java") override fun onActivityResult(r:Int,c:Int,d:Intent?){super.onActivityResult(r,c,d);if(r==captureRequest){if(c==RESULT_OK&&d!=null){CaptureService.start(this,c,d);Toast.makeText(this,R.string.permission_granted,Toast.LENGTH_SHORT).show()}else Toast.makeText(this,R.string.capture_denied,Toast.LENGTH_LONG).show()}}
- private fun bluetoothDialog(){if(android.os.Build.VERSION.SDK_INT>=31&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT),9);Toast.makeText(this,R.string.bluetooth_permission,Toast.LENGTH_LONG).show();return};val devices=BluetoothInputManager(this).devices();AlertDialog.Builder(this).setTitle(R.string.connected_devices).setItems(devices.map{it.name+" · "+it.type}.ifEmpty{listOf(getString(R.string.disconnected))}.toTypedArray(),null).setPositiveButton(R.string.refresh,null).setNeutralButton(R.string.input_test){_,_-> inputTest()}.show() }
+ private fun bluetoothDialog(){if(android.os.Build.VERSION.SDK_INT>=31&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT),9);Toast.makeText(this,R.string.bluetooth_permission,Toast.LENGTH_LONG).show();return};val devices=BluetoothInputManager(this).devices();AlertDialog.Builder(this).setTitle(R.string.connected_devices).setItems(devices.map{it.name+" · "+it.type}.ifEmpty{listOf(getString(R.string.disconnected))}.toTypedArray(),null).setPositiveButton(R.string.refresh,null).setNeutralButton(R.string.input_test) { _: android.content.DialogInterface, _: Int -> inputTest() }.show() }
  private fun inputTest(){ val monitor=InputEventMonitor{};AlertDialog.Builder(this).setTitle(R.string.input_test).setMessage(getString(R.string.recent_events)).setPositiveButton(android.R.string.ok,null).show() }
  override fun dispatchKeyEvent(e:KeyEvent)=InputEventMonitor({}).onKey(e) || super.dispatchKeyEvent(e)
  override fun dispatchGenericMotionEvent(e:MotionEvent)=InputEventMonitor({}).onMotion(e) || super.dispatchGenericMotionEvent(e)
