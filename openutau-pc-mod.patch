@@ -1,0 +1,1068 @@
+diff --git a/OpenUtau.Core/Editing/LyricBatchEdits.cs b/OpenUtau.Core/Editing/LyricBatchEdits.cs
+index 38e7f71..8219484 100644
+--- a/OpenUtau.Core/Editing/LyricBatchEdits.cs
++++ b/OpenUtau.Core/Editing/LyricBatchEdits.cs
+@@ -42,6 +42,16 @@ protected override string Transform(string lyric) {
+         }
+     }
+ 
++    public class KanaToHiragana : SingleNoteLyricEdit {
++        public override string Name => "lyrics.tohiragana";
++        protected override string Transform(string lyric) => Util.JapaneseLyricsConverter.ToHiragana(lyric);
++    }
++
++    public class KanaToKatakana : SingleNoteLyricEdit {
++        public override string Name => "lyrics.tokatakana";
++        protected override string Transform(string lyric) => Util.JapaneseLyricsConverter.ToKatakana(lyric);
++    }
++
+     public class HiraganaToRomaji : SingleNoteLyricEdit {
+         public override string Name => "pianoroll.menu.lyrics.hiraganatoromaji";
+         protected override string Transform(string lyric) {
+diff --git a/OpenUtau.Core/OpenUtau.Core.csproj b/OpenUtau.Core/OpenUtau.Core.csproj
+index 129dd83..725c57d 100644
+--- a/OpenUtau.Core/OpenUtau.Core.csproj
++++ b/OpenUtau.Core/OpenUtau.Core.csproj
+@@ -46,7 +46,7 @@
+     <PackageReference Include="JsonSchema.Net" Version="8.0.0" PrivateAssets="compile;contentfiles;analyzers;build" />
+     <PackageReference Include="NetMQ" Version="4.0.1.13" />
+   </ItemGroup>
+-  <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
++  <ItemGroup Condition="'$(OpenUtauTargetOS)' == 'win'">
+     <PackageReference Include="NAudio" Version="2.2.1" />
+     <!-- Pinned to 1.23.0 on purpose: the 1.24.x DirectML build can kill the
+          process natively while an InferenceSession is being created - no managed
+@@ -58,10 +58,10 @@
+          resolved upward to 1.24.x through NU1603. -->
+     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
+   </ItemGroup>
+-  <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))' == 'true'">
++  <ItemGroup Condition="'$(OpenUtauTargetOS)' == 'linux'">
+     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="1.24.4" />
+   </ItemGroup>
+-  <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">
++  <ItemGroup Condition="'$(OpenUtauTargetOS)' == 'osx'">
+     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.4" />
+   </ItemGroup>
+   <ItemGroup>
+@@ -105,7 +105,7 @@
+     </EmbeddedResource>
+     <EmbeddedResource Include="Js\Template\*" LogicalName="Js.Template.%(Filename)%(Extension)" />
+   </ItemGroup>
+-  <PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
++  <PropertyGroup Condition="'$(OpenUtauTargetOS)' == 'win'">
+     <DefineConstants>WINDOWS</DefineConstants>
+   </PropertyGroup>
+ </Project>
+diff --git a/OpenUtau.Core/Ustx/UNote.cs b/OpenUtau.Core/Ustx/UNote.cs
+index 45af043..42c41c5 100644
+--- a/OpenUtau.Core/Ustx/UNote.cs
++++ b/OpenUtau.Core/Ustx/UNote.cs
+@@ -18,6 +18,8 @@ public class UNote : IComparable {
+         public int duration;
+         public int tone;
+         public string lyric = NotePresets.Default.DefaultLyric;
++        /// <summary>Optional phonetic hint; the displayed lyric remains unchanged.</summary>
++        public string? pronunciation;
+         public UPitch pitch;
+         public UVibrato vibrato;
+         public int tuning;
+@@ -122,6 +124,9 @@ internal Phonemizer.Note ToPhonemizerNote(UTrack track, UPart part) {
+                 phoneticHint = match.Groups[1].Value;
+                 return "";
+             });
++            if (Preferences.Default.AutoPronunciationLyrics && string.IsNullOrWhiteSpace(pronunciation)) {
++                lrc = JapaneseLyricsConverter.ToHiragana(lrc);
++            }
+             attributesBuffer.Clear();
+             foreach (var exp in phonemeExpressions) {
+                 if (exp.abbr != Format.Ustx.VEL &&
+@@ -155,7 +160,7 @@ internal Phonemizer.Note ToPhonemizerNote(UTrack track, UPart part) {
+             attributesBuffer.Clear();
+             return new Phonemizer.Note() {
+                 lyric = lrc.Trim(),
+-                phoneticHint = phoneticHint?.Trim(),
++                phoneticHint = string.IsNullOrWhiteSpace(pronunciation) ? phoneticHint?.Trim() : pronunciation.Trim(),
+                 tone = tone,
+                 position = part.position + position,
+                 duration = duration,
+@@ -163,6 +168,18 @@ internal Phonemizer.Note ToPhonemizerNote(UTrack track, UPart part) {
+             };
+         }
+ 
++        internal string? EffectivePhonemizerName(UTrack track) {
++            if (!string.IsNullOrEmpty(PhonemizerOverride)) {
++                return PhonemizerOverride;
++            }
++            if (Preferences.Default.AutoPronunciationLyrics
++                && (track.Phonemizer.Language == "JA" || track.Phonemizer is DefaultPhonemizer)
++                && PronunciationLyricsConverter.IsKoreanSyllable(lyric)) {
++                return PronunciationLyricsConverter.KoreanPhonemizerName;
++            }
++            return null;
++        }
++
+         public UPhonemeOverride GetPhonemeOverride(int index) {
+             var result = phonemeOverrides.Find(o => o.index == index);
+             if (result == null) {
+@@ -256,6 +273,7 @@ public UNote Clone() {
+                 duration = duration,
+                 tone = tone,
+                 lyric = lyric,
++                pronunciation = pronunciation,
+                 pitch = pitch.Clone(),
+                 vibrato = vibrato.Clone(),
+                 tuning = tuning,
+diff --git a/OpenUtau.Core/Ustx/UPart.cs b/OpenUtau.Core/Ustx/UPart.cs
+index 2b4d52d..a56a2a9 100644
+--- a/OpenUtau.Core/Ustx/UPart.cs
++++ b/OpenUtau.Core/Ustx/UPart.cs
+@@ -161,14 +161,15 @@ public override void Validate(ValidateOptions options, UProject project, UTrack
+                     noteIndexes.Add(noteIndex);
+ 
+                     int pIndex = 0;
+-                    if (!string.IsNullOrEmpty(note.PhonemizerOverride)) {
+-                        pIndex = trackPhonemizers.FindIndex(p => p != null && p.Name == note.PhonemizerOverride);
++                    var phonemizerName = note.EffectivePhonemizerName(track);
++                    if (!string.IsNullOrEmpty(phonemizerName)) {
++                        pIndex = trackPhonemizers.FindIndex(p => p != null && p.Name == phonemizerName);
+                         if (pIndex == -1) {
+-                            if (!overridePhonemizers.TryGetValue(note.PhonemizerOverride, out var newPhonemizer)) {
+-                                var factory = PhonemizerFactory.GetAll().FirstOrDefault(f => f.name == note.PhonemizerOverride);
++                            if (!overridePhonemizers.TryGetValue(phonemizerName, out var newPhonemizer)) {
++                                var factory = PhonemizerFactory.GetAll().FirstOrDefault(f => f.name == phonemizerName);
+                                 newPhonemizer = factory?.Create();
+                                 if (newPhonemizer != null) {
+-                                    overridePhonemizers[note.PhonemizerOverride] = newPhonemizer;
++                                    overridePhonemizers[phonemizerName] = newPhonemizer;
+                                 }
+                             }
+                             
+diff --git a/OpenUtau.Core/Util/Preferences.cs b/OpenUtau.Core/Util/Preferences.cs
+index be6efb1..e15eec4 100644
+--- a/OpenUtau.Core/Util/Preferences.cs
++++ b/OpenUtau.Core/Util/Preferences.cs
+@@ -250,6 +250,7 @@ public class SerializablePreferences {
+             public Dictionary<string, string> DefaultWavtools = new Dictionary<string, string>();
+             public string LyricHelper = string.Empty;
+             public bool LyricsHelperBrackets = false;
++            public bool AutoPronunciationLyrics = true;
+             public int OtoEditor = 0;
+             public string VLabelerPath = string.Empty;
+             public string SetParamPath = string.Empty;
+diff --git a/OpenUtau.Test/OpenUtau.Test.csproj b/OpenUtau.Test/OpenUtau.Test.csproj
+index 372b372..3cd73c2 100644
+--- a/OpenUtau.Test/OpenUtau.Test.csproj
++++ b/OpenUtau.Test/OpenUtau.Test.csproj
+@@ -1,8 +1,8 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+-  <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
++  <PropertyGroup Condition=" '$(OpenUtauTargetOS)' == 'win' ">
+     <TargetFramework>net10.0-windows</TargetFramework>
+   </PropertyGroup>
+-  <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
++  <PropertyGroup Condition=" '$(OpenUtauTargetOS)' != 'win' ">
+     <TargetFramework>net10.0</TargetFramework>
+   </PropertyGroup>
+   <PropertyGroup>
+diff --git a/OpenUtau/Controls/LyricBox.axaml b/OpenUtau/Controls/LyricBox.axaml
+index 947eb40..6fb178b 100644
+--- a/OpenUtau/Controls/LyricBox.axaml
++++ b/OpenUtau/Controls/LyricBox.axaml
+@@ -16,6 +16,11 @@
+              Text="{Binding Text}" Focusable="True"
+              GotFocus="Box_GotFocus" LostFocus="Box_LostFocus" KeyDown="Box_KeyDown"/>
+     <Border Grid.Row="2">
++      <StackPanel>
++      <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsAliasBox}">
++        <TextBlock Text="{DynamicResource lyricbox.pronunciation}" VerticalAlignment="Center"/>
++        <TextBox Width="255" PlaceholderText="ka" Text="{Binding Pronunciation}" KeyDown="PronunciationBox_KeyDown"/>
++      </StackPanel>
+       <ListBox Name="PART_Suggestions" Grid.Row="2" MaxHeight="240"
+                VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+                BorderThickness="0" Background="Transparent"
+@@ -36,6 +41,7 @@
+           </DataTemplate>
+         </ListBox.ItemTemplate>
+       </ListBox>
++      </StackPanel>
+     </Border>
+   </Grid>
+ </UserControl>
+diff --git a/OpenUtau/Controls/LyricBox.axaml.cs b/OpenUtau/Controls/LyricBox.axaml.cs
+index 938acb0..68ab26f 100644
+--- a/OpenUtau/Controls/LyricBox.axaml.cs
++++ b/OpenUtau/Controls/LyricBox.axaml.cs
+@@ -130,6 +130,16 @@ private void Box_KeyDown(object? sender, KeyEventArgs e) {
+             }
+         }
+ 
++        private void PronunciationBox_KeyDown(object? sender, KeyEventArgs e) {
++            if (e.Key == Key.Enter) {
++                EndEdit(true);
++                e.Handled = true;
++            } else if (e.Key == Key.Escape) {
++                EndEdit();
++                e.Handled = true;
++            }
++        }
++
+         private void OnTab(KeyModifiers keyModifiers) {
+             UVoicePart? part = viewModel.Part;
+             var tabFrom = viewModel.NoteOrPhoneme;
+@@ -175,6 +185,7 @@ public void ListBox_PointerPressed(object sender, PointerPressedEventArgs args)
+         public void Show(UVoicePart part, LyricBoxNoteOrPhoneme noteOrPhoneme, string text) {
+             viewModel.Part = part;
+             viewModel.NoteOrPhoneme = noteOrPhoneme;
++            viewModel.Pronunciation = (noteOrPhoneme as LyricBoxNote)?.note.pronunciation;
+             viewModel.Text = text;
+             viewModel.IsVisible = true;
+             box.SelectAll();
+@@ -203,6 +214,7 @@ public void EndEdit(bool commit = false) {
+             viewModel.NoteOrPhoneme = null;
+             viewModel.IsVisible = false;
+             viewModel.Text = string.Empty;
++            viewModel.Pronunciation = null;
+         }
+     }
+ }
+diff --git a/OpenUtau/Controls/PianoRoll.axaml.cs b/OpenUtau/Controls/PianoRoll.axaml.cs
+index 3807244..0360116 100644
+--- a/OpenUtau/Controls/PianoRoll.axaml.cs
++++ b/OpenUtau/Controls/PianoRoll.axaml.cs
+@@ -155,6 +155,8 @@ await MessageBox.ShowProcessing(RootWindow, $"{name} - ? / ?",
+             }
+             ViewModel.LyricBatchEdits.AddRange(new List<BatchEdit>() {
+                 new RomajiToHiragana(),
++                new KanaToHiragana(),
++                new KanaToKatakana(),
+                 new HiraganaToRomaji(),
+                 new JapaneseVCVtoCV(),
+                 new HanziToPinyin(),
+diff --git a/OpenUtau/OpenUtau.csproj b/OpenUtau/OpenUtau.csproj
+index 77be1d1..b9f1124 100644
+--- a/OpenUtau/OpenUtau.csproj
++++ b/OpenUtau/OpenUtau.csproj
+@@ -1,8 +1,8 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+-  <PropertyGroup Condition=" '$(OS)' == 'Windows_NT' ">
++  <PropertyGroup Condition=" '$(OpenUtauTargetOS)' == 'win' ">
+     <TargetFramework>net10.0-windows</TargetFramework>
+   </PropertyGroup>
+-  <PropertyGroup Condition=" '$(OS)' != 'Windows_NT' ">
++  <PropertyGroup Condition=" '$(OpenUtauTargetOS)' != 'win' ">
+     <TargetFramework>net10.0</TargetFramework>
+   </PropertyGroup>
+   <PropertyGroup>
+diff --git a/OpenUtau/Strings/Strings.axaml b/OpenUtau/Strings/Strings.axaml
+index cf708ea..a0b0bae 100644
+--- a/OpenUtau/Strings/Strings.axaml
++++ b/OpenUtau/Strings/Strings.axaml
+@@ -1104,4 +1104,11 @@ Rename the ignored folder to load it.</system:String>
+   <system:String x:Key="yamleditor.value">Value: {0}</system:String>
+   <system:String x:Key="yamleditor.warnings">Warnings: {0}. OpenUtau ignores these parts; you can still save.</system:String>
+   <system:String x:Key="yamleditor.wrongtype">Expected {0}.</system:String>
++  <system:String x:Key="lyrics.tohiragana">Convert to hiragana</system:String>
++  <system:String x:Key="lyrics.tokatakana">Convert to katakana</system:String>
++  <system:String x:Key="prefs.editing.autohiragana">Read Latin input as Japanese romaji (otherwise English words)</system:String>
++  <system:String x:Key="prefs.editing.autopronunciation">Automatically phonemize Korean and Japanese lyrics while keeping the original text</system:String>
++  <system:String x:Key="lyricbox.pronunciation">Pronunciation</system:String>
++  <system:String x:Key="lyrics.loadoriginal">Load original</system:String>
++  <system:String x:Key="lyrics.restoreoriginal">Restore original lyrics</system:String>
+ </ResourceDictionary>
+diff --git a/OpenUtau/Strings/Strings.ja-JP.axaml b/OpenUtau/Strings/Strings.ja-JP.axaml
+index 96e421c..5ffba54 100644
+--- a/OpenUtau/Strings/Strings.ja-JP.axaml
++++ b/OpenUtau/Strings/Strings.ja-JP.axaml
+@@ -867,4 +867,11 @@ oto.iniに記載のファイル名：{0}
+   <system:String x:Key="welcome.recent">最近使用したファイル</system:String>
+   <system:String x:Key="welcome.start">開始</system:String>
+   <system:String x:Key="welcome.template">テンプレート</system:String>
++  <system:String x:Key="lyrics.tohiragana">ひらがなに変換</system:String>
++  <system:String x:Key="lyrics.tokatakana">カタカナに変換</system:String>
++  <system:String x:Key="prefs.editing.autohiragana">英字を日本語のローマ字として読む（オフ：英単語）</system:String>
++  <system:String x:Key="prefs.editing.autopronunciation">韓国語・日本語の歌詞を保持して発音を自動変換</system:String>
++  <system:String x:Key="lyricbox.pronunciation">発音補正</system:String>
++  <system:String x:Key="lyrics.loadoriginal">原文を読み込む</system:String>
++  <system:String x:Key="lyrics.restoreoriginal">歌詞の原文を復元</system:String>
+ </ResourceDictionary>
+diff --git a/OpenUtau/Strings/Strings.ko-KR.axaml b/OpenUtau/Strings/Strings.ko-KR.axaml
+index b2c7b0a..ee3d734 100644
+--- a/OpenUtau/Strings/Strings.ko-KR.axaml
++++ b/OpenUtau/Strings/Strings.ko-KR.axaml
+@@ -867,4 +867,11 @@ OpenUtau(오픈우타우)는 세련된 사용자 경험과 유연한 음운 지
+   <system:String x:Key="welcome.recent">최근 기록들</system:String>
+   <system:String x:Key="welcome.start">시작하기</system:String>
+   <system:String x:Key="welcome.template">템플릿</system:String>
++  <system:String x:Key="lyrics.tohiragana">히라가나로 변환</system:String>
++  <system:String x:Key="lyrics.tokatakana">가타카나로 변환</system:String>
++  <system:String x:Key="prefs.editing.autohiragana">영문을 일본어 로마자로 읽기 (끄면 영어 단어 발음)</system:String>
++  <system:String x:Key="prefs.editing.autopronunciation">한국어·일본어 가사 원문을 유지하며 음원 발음 자동 변환</system:String>
++  <system:String x:Key="lyricbox.pronunciation">발음 보정</system:String>
++  <system:String x:Key="lyrics.loadoriginal">원문 불러오기</system:String>
++  <system:String x:Key="lyrics.restoreoriginal">원문 가사 복원</system:String>
+ </ResourceDictionary>
+diff --git a/OpenUtau/ViewModels/LyricBoxViewModel.cs b/OpenUtau/ViewModels/LyricBoxViewModel.cs
+index 6235462..7109c26 100644
+--- a/OpenUtau/ViewModels/LyricBoxViewModel.cs
++++ b/OpenUtau/ViewModels/LyricBoxViewModel.cs
+@@ -19,6 +19,7 @@ public class SuggestionItem {
+         [Reactive] public partial LyricBoxNoteOrPhoneme? NoteOrPhoneme { get; set; }
+         [Reactive] public partial bool IsVisible { get; set; }
+         [Reactive] public partial string? Text { get; set; }
++        [Reactive] public partial string? Pronunciation { get; set; }
+         [Reactive] public partial SuggestionItem? SelectedSuggestion { get; set; }
+         [Reactive] public partial ObservableCollectionExtended<SuggestionItem> Suggestions { get; set; }
+ 
+@@ -94,7 +95,7 @@ public void Commit() {
+             }
+             if (!IsAliasBox) {
+                 var note = NoteOrPhoneme as LyricBoxNote;
+-                if (Text == note!.Unwrap().lyric) {
++                if (Text == note!.Unwrap().lyric && (Pronunciation ?? "") == (note.Unwrap().pronunciation ?? "")) {
+                     return;
+                 }
+             } else {
+@@ -111,7 +112,13 @@ public void Commit() {
+                 DocManager.Inst.ExecuteCmd(new ChangePhonemeAliasCommand(Part, note.Extends ?? note, index, Text));
+             } else {
+                 DocManager.Inst.StartUndoGroup("command.note.lyric");
+-                DocManager.Inst.ExecuteCmd(new ChangeNoteLyricCommand(Part, (NoteOrPhoneme as LyricBoxNote)!.Unwrap(), Text));
++                var note = (NoteOrPhoneme as LyricBoxNote)!.Unwrap();
++                if (note.lyric != Text) {
++                    DocManager.Inst.ExecuteCmd(new ChangeNoteLyricCommand(Part, note, Text));
++                }
++                if ((note.pronunciation ?? "") != (Pronunciation ?? "")) {
++                    DocManager.Inst.ExecuteCmd(new ChangeNotePronunciationCommand(Part, note, Pronunciation));
++                }
+             }
+             DocManager.Inst.EndUndoGroup();
+         }
+diff --git a/OpenUtau/ViewModels/LyricsViewModel.cs b/OpenUtau/ViewModels/LyricsViewModel.cs
+index 8c86273..eec7218 100644
+--- a/OpenUtau/ViewModels/LyricsViewModel.cs
++++ b/OpenUtau/ViewModels/LyricsViewModel.cs
+@@ -19,6 +19,7 @@ public partial class LyricsViewModel : ViewModelBase {
+         private UNote[]? notes;
+         private UNote[]? selection;
+         private string[]? startLyrics;
++        private bool starting;
+ 
+         public LyricsViewModel() {
+             this.WhenAnyValue(x => x.LivePreview,
+@@ -34,6 +35,7 @@ public LyricsViewModel() {
+         }
+ 
+         public void Start(UVoicePart part, UNote[] notes, UNote[] selection) {
++            starting = true;
+             this.part = part;
+             this.notes = notes;
+             this.selection = selection;
+@@ -45,11 +47,12 @@ public void Start(UVoicePart part, UNote[] notes, UNote[] selection) {
+             CurrentCount = TotalCount;
+             Text = SplitLyrics.Join(startLyrics!);
+             DocManager.Inst.StartUndoGroup("command.note.lyric");
++            starting = false;
+         }
+ 
+         private void Preview(bool update) {
+             var notes = ApplySelection ? selection : this.notes;
+-            if (startLyrics == null || notes == null || part == null) {
++            if (starting || startLyrics == null || notes == null || part == null) {
+                 return;
+             }
+             DocManager.Inst.RollBackUndoGroup();
+@@ -74,6 +77,14 @@ private void UpdateTotalCount() {
+             }
+         }
+ 
++        public void ConvertToHiragana() {
++            Text = SplitLyrics.Join(SplitLyrics.Split(Text).Select(JapaneseLyricsConverter.ToHiragana));
++        }
++
++        public void ConvertToKatakana() {
++            Text = SplitLyrics.Join(SplitLyrics.Split(Text).Select(JapaneseLyricsConverter.ToKatakana));
++        }
++
+         public void Reset() {
+             if (startLyrics == null) {
+                 return;
+diff --git a/OpenUtau/ViewModels/PreferencesViewModel.cs b/OpenUtau/ViewModels/PreferencesViewModel.cs
+index 177ae70..e46fefc 100644
+--- a/OpenUtau/ViewModels/PreferencesViewModel.cs
++++ b/OpenUtau/ViewModels/PreferencesViewModel.cs
+@@ -79,6 +79,7 @@ public AudioOutputDevice? AudioOutputDevice {
+                 .ToList();
+         [Reactive] public partial LyricsHelperOption? LyricsHelper { get; set; }
+         [Reactive] public partial bool LyricsHelperBrackets { get; set; }
++        [Reactive] public partial bool AutoPronunciationLyrics { get; set; }
+         [Reactive] public partial bool PenPlusDefault { get; set; }
+ 
+         // Render
+@@ -246,6 +247,7 @@ public PreferencesViewModel() {
+             };
+             LyricsHelper = LyricsHelpers.FirstOrDefault(option => option.klass.Equals(ActiveLyricsHelper.Inst.GetPreferred()));
+             LyricsHelperBrackets = Preferences.Default.LyricsHelperBrackets;
++            AutoPronunciationLyrics = Preferences.Default.AutoPronunciationLyrics;
+             OtoEditor = Preferences.Default.OtoEditor;
+             RememberMid = Preferences.Default.RememberMid;
+             RememberUst = Preferences.Default.RememberUst;
+@@ -416,6 +418,8 @@ public PreferencesViewModel() {
+                     Preferences.Default.LyricHelper = option?.klass?.Name ?? string.Empty;
+                     Preferences.Save();
+                 });
++            PersistOn(this.WhenAnyValue(vm => vm.AutoPronunciationLyrics),
++                enabled => Preferences.Default.AutoPronunciationLyrics = enabled);
+             PersistOn(this.WhenAnyValue(vm => vm.LyricsHelperBrackets),
+                 brackets => Preferences.Default.LyricsHelperBrackets = brackets);
+             PersistOn(this.WhenAnyValue(vm => vm.OtoEditor),
+diff --git a/OpenUtau/Views/LyricsDialog.axaml b/OpenUtau/Views/LyricsDialog.axaml
+index 862ed9e..ee73391 100644
+--- a/OpenUtau/Views/LyricsDialog.axaml
++++ b/OpenUtau/Views/LyricsDialog.axaml
+@@ -12,11 +12,15 @@
+   <Window.Styles>
+     <StyleInclude Source="/Styles/PianoRollStyles.axaml"/>
+   </Window.Styles>
+-  <Grid Margin="10,10,10,4" RowDefinitions="*,6,Auto,4,Auto">
+-    <TextBox Name="DIALOG_Box" Grid.Row="0" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
++  <Grid Margin="10,10,10,4" RowDefinitions="Auto,6,*,6,Auto,4,Auto">
++    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8">
++      <Button Content="{DynamicResource lyrics.tohiragana}" Command="{Binding ConvertToHiragana}"/>
++      <Button Content="{DynamicResource lyrics.tokatakana}" Command="{Binding ConvertToKatakana}"/>
++    </StackPanel>
++    <TextBox Name="DIALOG_Box" Grid.Row="2" VerticalAlignment="Stretch" HorizontalAlignment="Stretch"
+              AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" Height="NaN"
+              Text="{Binding Text}" Focusable="True"/>
+-    <TextBlock Grid.Row="2" Margin="0,2" HorizontalAlignment="Right">
++    <TextBlock Grid.Row="4" Margin="0,2" HorizontalAlignment="Right">
+       <TextBlock.Text>
+         <MultiBinding StringFormat="{}{0}/{1}">
+           <Binding Path="CurrentCount"/>
+@@ -24,7 +28,7 @@
+         </MultiBinding>
+       </TextBlock.Text>
+     </TextBlock>
+-    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="4">
++    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="4">
+       <TextBlock Text="{StaticResource lyrics.separators}" Margin="0,2"/>
+       <Border CornerRadius="5"
+               Background="{DynamicResource MenuFlyoutItemBackgroundPointerOver}">
+@@ -47,7 +51,7 @@
+         <TextBlock Text="字" Margin="0" Padding="4,2"/>
+       </Border>
+     </StackPanel>
+-    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10">
++    <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="10">
+       <TextBlock Text="{StaticResource lyrics.livepreview}" Margin="0,8"/>
+       <ToggleSwitch Margin="0" IsChecked="{Binding LivePreview}">
+         <ToggleSwitch.Styles>
+@@ -65,7 +69,7 @@
+         </ToggleSwitch.Styles>
+       </ToggleSwitch>
+     </StackPanel>
+-    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
++    <StackPanel Grid.Row="6" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+       <Button Content="{DynamicResource button.reset}" Margin="0" Command="{Binding Reset}"/>
+       <Button Content="{DynamicResource button.cancel}" Margin="0" Click="OnCancel"/>
+       <Button Content="{DynamicResource button.apply}" Margin="0" Click="OnFinish"/>
+diff --git a/OpenUtau/Views/PreferencesDialog.axaml b/OpenUtau/Views/PreferencesDialog.axaml
+index 19858cf..f767ecd 100644
+--- a/OpenUtau/Views/PreferencesDialog.axaml
++++ b/OpenUtau/Views/PreferencesDialog.axaml
+@@ -224,6 +224,10 @@
+         <StackPanel>
+           <TextBlock Text="{DynamicResource prefs.advanced.lyricshelper}" Margin="0,10,0,0"/>
+           <ComboBox ItemsSource="{Binding LyricsHelpers}" SelectedItem="{Binding LyricsHelper}"/>
++          <Grid ColumnDefinitions="*,Auto">
++            <TextBlock Text="{DynamicResource prefs.editing.autopronunciation}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,10,0"/>
++            <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoPronunciationLyrics}"/>
++          </Grid>
+           <Grid>
+             <TextBlock Text="{DynamicResource prefs.advanced.lyricshelper.brackets}" HorizontalAlignment="Left"/>
+             <ToggleSwitch IsChecked="{Binding LyricsHelperBrackets}"/>
+diff --git a/OpenUtau/Views/UpdaterDialog.axaml.cs b/OpenUtau/Views/UpdaterDialog.axaml.cs
+index 92736b2..7ce2935 100644
+--- a/OpenUtau/Views/UpdaterDialog.axaml.cs
++++ b/OpenUtau/Views/UpdaterDialog.axaml.cs
+@@ -20,7 +20,12 @@ void OnClosing(object sender, WindowClosingEventArgs e) {
+         }
+ 
+         /// <summary>Whether CheckForUpdate runs. UI tests turn it off to stay offline.</summary>
+-        public static bool CheckForUpdateEnabled { get; set; } = true;
++        public static bool CheckForUpdateEnabled { get; set; } =
++#if PC_INPUT_MOD
++            false;
++#else
++            true;
++#endif
+ 
+         public static void CheckForUpdate(Action<Window> showDialog, Action closeApplication, TaskScheduler scheduler) {
+             if (!CheckForUpdateEnabled) {
+
+diff --git a/.github/workflows/pc-mod.yml b/.github/workflows/pc-mod.yml
+new file mode 100644
+index 0000000..f2da641
+--- /dev/null
++++ b/.github/workflows/pc-mod.yml
+@@ -0,0 +1,21 @@
++name: PC input mod (Windows)
++on:
++  workflow_dispatch:
++permissions:
++  contents: read
++jobs:
++  windows:
++    runs-on: windows-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-dotnet@v4
++        with:
++          dotnet-version: '10.0.x'
++      - name: Test and package Windows x64
++        shell: pwsh
++        run: ./build-pc.ps1
++      - uses: actions/upload-artifact@v4
++        with:
++          name: OpenUtau-PC-Mod-win-x64
++          path: artifacts/OpenUtau-PC-Mod-win-x64.zip
++          if-no-files-found: error
+
+diff --git a/Directory.Build.props b/Directory.Build.props
+new file mode 100644
+index 0000000..f82fec9
+--- /dev/null
++++ b/Directory.Build.props
+@@ -0,0 +1,12 @@
++<Project>
++  <PropertyGroup>
++    <!-- Native packages must follow the target RID when cross-publishing. -->
++    <OpenUtauTargetOS Condition="$(RuntimeIdentifier.StartsWith('win-'))">win</OpenUtauTargetOS>
++    <OpenUtauTargetOS Condition="$(RuntimeIdentifier.StartsWith('linux-'))">linux</OpenUtauTargetOS>
++    <OpenUtauTargetOS Condition="$(RuntimeIdentifier.StartsWith('osx-'))">osx</OpenUtauTargetOS>
++    <OpenUtauTargetOS Condition="'$(OpenUtauTargetOS)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win</OpenUtauTargetOS>
++    <OpenUtauTargetOS Condition="'$(OpenUtauTargetOS)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux</OpenUtauTargetOS>
++    <OpenUtauTargetOS Condition="'$(OpenUtauTargetOS)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx</OpenUtauTargetOS>
++    <DefineConstants Condition="'$(PcInputMod)' == 'true'">$(DefineConstants);PC_INPUT_MOD</DefineConstants>
++  </PropertyGroup>
++</Project>
+
+diff --git a/OpenUtau.Core/Commands/ChangeNotePronunciationCommand.cs b/OpenUtau.Core/Commands/ChangeNotePronunciationCommand.cs
+new file mode 100644
+index 0000000..8dd2e79
+--- /dev/null
++++ b/OpenUtau.Core/Commands/ChangeNotePronunciationCommand.cs
+@@ -0,0 +1,31 @@
++using OpenUtau.Core.Ustx;
++
++namespace OpenUtau.Core {
++    /// <summary>Edits pronunciation without changing the displayed lyric.</summary>
++    public class ChangeNotePronunciationCommand : NoteCommand {
++        private readonly UNote note;
++        private readonly string? oldPronunciation;
++        private readonly string? newPronunciation;
++
++        public ChangeNotePronunciationCommand(UVoicePart part, UNote note, string? pronunciation)
++            : base(part, note) {
++            this.note = note;
++            oldPronunciation = note.pronunciation;
++            newPronunciation = string.IsNullOrWhiteSpace(pronunciation) ? null : pronunciation.Trim();
++        }
++
++        public override string ToString() => "Change note pronunciation";
++
++        public override void Execute() {
++            lock (Part) {
++                note.pronunciation = newPronunciation;
++            }
++        }
++
++        public override void Unexecute() {
++            lock (Part) {
++                note.pronunciation = oldPronunciation;
++            }
++        }
++    }
++}
+warning: in the working copy of 'OpenUtau.Core/Commands/ChangeNotePronunciationCommand.cs', LF will be replaced by CRLF the next time Git touches it
+
+warning: in the working copy of 'OpenUtau.Core/Util/JapaneseLyricsConverter.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Core/Util/JapaneseLyricsConverter.cs b/OpenUtau.Core/Util/JapaneseLyricsConverter.cs
+new file mode 100644
+index 0000000..5dd55cd
+--- /dev/null
++++ b/OpenUtau.Core/Util/JapaneseLyricsConverter.cs
+@@ -0,0 +1,31 @@
++using System.Collections.Generic;
++using System.Linq;
++using System.Text.RegularExpressions;
++using WanaKanaNet;
++
++namespace OpenUtau.Core.Util {
++    /// <summary>Converts plain lyrics without rewriting aliases, hints or control tokens.</summary>
++    public static class JapaneseLyricsConverter {
++        private static readonly HashSet<string> reserved = new HashSet<string>(
++            System.StringComparer.OrdinalIgnoreCase) { "R", "br", "bre", "AP", "SP", "cl" };
++        private static readonly Regex plainLyric = new Regex(@"\A[a-zA-Z'\u3041-\u3096\u30A1-\u30FA\u30FC]+\z");
++        private static readonly Regex latin = new Regex("[a-zA-Z]");
++
++        public static string ToHiragana(string lyric) => Convert(lyric, false);
++        public static string ToKatakana(string lyric) => Convert(lyric, true);
++
++        private static string Convert(string lyric, bool katakana) {
++            // Spaces, pitch suffixes, phonetic hints and punctuation indicate an
++            // explicit alias. Korean originals are left for KO to JA to process.
++            if (reserved.Contains(lyric) || !plainLyric.IsMatch(lyric)) {
++                return lyric;
++            }
++            // WanaKana expands katakana long-vowel marks into vowels. Preserve
++            // those marks when only changing script, so note text round-trips.
++            var converted = katakana ? WanaKana.ToKatakana(lyric)
++                : string.Join("ー", lyric.Split('ー').Select(part => WanaKana.ToHiragana(part)));
++            // Do not commit a partially converted English word or incomplete romaji.
++            return latin.IsMatch(converted) || converted.Contains('\'') ? lyric : converted;
++        }
++    }
++}
+
+warning: in the working copy of 'OpenUtau.Core/Util/PronunciationLyricsConverter.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Core/Util/PronunciationLyricsConverter.cs b/OpenUtau.Core/Util/PronunciationLyricsConverter.cs
+new file mode 100644
+index 0000000..45fb270
+--- /dev/null
++++ b/OpenUtau.Core/Util/PronunciationLyricsConverter.cs
+@@ -0,0 +1,60 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Text;
++using System.Text.RegularExpressions;
++using WanaKanaNet;
++
++namespace OpenUtau.Core.Util {
++    /// <summary>Approximate Korean pronunciation and Japanese romaji in kana.</summary>
++    public static class PronunciationLyricsConverter {
++        public const string KoreanPhonemizerName = "KO to JA Phonemizer";
++        public static bool IsKoreanSyllable(string? text) {
++            text = text?.Normalize();
++            return text != null && text.Length == 1 && text[0] >= '가' && text[0] <= '힣';
++        }
++        private static readonly Regex hangul = new Regex(@"\A[가-힣]+\z");
++        private static readonly HashSet<string> reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
++            "R", "br", "bre", "AP", "SP", "cl"
++        };
++        // Same Unicode order and vowel approximations as the built-in KO to JA phonemizer.
++        private static readonly string[] initials = "g k n d t r m b p s s _ j ch ch k t p h".Split(' ');
++        private static readonly string[] vowels = "a e ya ye o e yo ye o wa we we yo u wo we wi yu u wi i".Split(' ');
++        private static readonly string[] codas = "_ ku ku ku n n n to ru ru ru ru ru ru ru ru mu pu pu to to n to to ku to pu to".Split(' ');
++        public static string Convert(string text, string? previous = null, string? next = null) {
++            if (string.IsNullOrEmpty(text) || reserved.Contains(text)) {
++                return text;
++            }
++            var normalized = text.Normalize(NormalizationForm.FormC);
++            if (hangul.IsMatch(normalized)) {
++                var result = new StringBuilder();
++                for (int i = 0; i < normalized.Length; i++) {
++                    var before = i > 0 ? normalized[i - 1].ToString() : HangulEdge(previous, false);
++                    var after = i + 1 < normalized.Length ? normalized[i + 1].ToString() : HangulEdge(next, true);
++                    var spoken = KoreanPhonemizerUtil.Variate(before, normalized[i].ToString(), after);
++                    int value = spoken[0] - '가';
++                    var onset = initials[value / 588];
++                    var vowel = vowels[value % 588 / 28];
++                    result.Append(Kana((onset == "_" ? "" : onset) + vowel));
++                    var coda = codas[value % 28];
++                    if (coda != "_") { result.Append(Kana(coda)); }
++                }
++                return result.ToString();
++            }
++            return JapaneseLyricsConverter.ToHiragana(text);
++        }
++
++        public static string[] ConvertAll(IReadOnlyList<string> lyrics) {
++            return lyrics.Select((text, i) => Convert(text,
++                i > 0 ? lyrics[i - 1] : null, i + 1 < lyrics.Count ? lyrics[i + 1] : null)).ToArray();
++        }
++
++        private static string? HangulEdge(string? text, bool first) {
++            if (string.IsNullOrEmpty(text)) { return null; }
++            text = text.Normalize(NormalizationForm.FormC);
++            return hangul.IsMatch(text) ? text[first ? 0 : text.Length - 1].ToString() : null;
++        }
++
++        private static string Kana(string romaji) => WanaKana.ToHiragana(romaji).Replace('ゔ', 'ヴ');
++    }
++}
+
+warning: in the working copy of 'OpenUtau.Test/App/LyricsConversionTest.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Test/App/LyricsConversionTest.cs b/OpenUtau.Test/App/LyricsConversionTest.cs
+new file mode 100644
+index 0000000..529815c
+--- /dev/null
++++ b/OpenUtau.Test/App/LyricsConversionTest.cs
+@@ -0,0 +1,75 @@
++using OpenUtau.App.ViewModels;
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using OpenUtau.Core;
++using OpenUtau.Core.Ustx;
++using OpenUtau.Core.Util;
++using ReactiveUI.Builder;
++using Xunit;
++
++namespace OpenUtau.Test.App {
++    [Collection(RenderSingletonCollection.Name)]
++    public class LyricsConversionTest {
++        static LyricsConversionTest() {
++            RxAppBuilder.CreateReactiveUIBuilder().WithCoreServices().BuildApp();
++        }
++        [Fact]
++        public void DialogConversionPreservesAliasesHintsAndNoteCount() {
++            var vm = new LyricsViewModel {
++                Text = "ka kya \"kitte\" \"a か\" \"가 [ka]\" + R"
++            };
++            vm.ConvertToHiragana();
++            Assert.Equal(new[] { "か", "きゃ", "きって", "a か", "가 [ka]", "+", "R" },
++                SplitLyrics.Split(vm.Text));
++            vm.ConvertToKatakana();
++            Assert.Equal(new[] { "カ", "キャ", "キッテ", "a か", "가 [ka]", "+", "R" },
++                SplitLyrics.Split(vm.Text));
++        }
++
++        [Theory]
++        [InlineData("unchanged", "ka", null)]
++        [InlineData("reset", "ka", null)]
++        [InlineData("cancel", "ka", null)]
++        [InlineData("korean", "가", null)]
++        [InlineData("romaji", "shi", null)]
++        [InlineData("katakana", "カ", null)]
++        public void DialogHonorsInputModeAndExplicitActions(string action, string expected, string? original) {
++            var captured = new List<NoteCommand>();
++            var priorAuto = Preferences.Default.AutoPronunciationLyrics;
++            var priorPreview = Preferences.Default.LyricLivePreview;
++            var priorSelection = Preferences.Default.LyricApplySelectionOnly;
++            try {
++                Preferences.Default.AutoPronunciationLyrics = true;
++                DocManager.Inst.CommandSink = command => {
++                    if (command is NoteCommand noteCommand) { captured.Add(noteCommand); }
++                };
++                var note = UNote.Create();
++                note.lyric = "ka";
++                var part = new UVoicePart();
++                part.notes.Add(note);
++                var vm = new LyricsViewModel { LivePreview = false, ApplySelection = false };
++                vm.Start(part, new[] { note }, Array.Empty<UNote>());
++                Assert.Empty(captured);
++                switch (action) {
++                    case "korean": vm.Text = "가"; break;
++                    case "romaji": vm.Text = "shi"; break;
++                    case "katakana": vm.ConvertToKatakana(); break;
++                    case "reset": vm.Text = "가"; vm.Reset(); break;
++                    case "cancel": vm.Text = "가"; break;
++                }
++                if (action == "cancel") { vm.Cancel(); } else { vm.Finish(); }
++                foreach (var command in captured) { command.Execute(); }
++                Assert.Equal(expected, note.lyric);
++                Assert.Equal(original, note.pronunciation);
++                if (action is "unchanged" or "reset" or "cancel") { Assert.Empty(captured); }
++            } finally {
++                DocManager.Inst.CommandSink = null;
++                Preferences.Default.AutoPronunciationLyrics = priorAuto;
++                Preferences.Default.LyricLivePreview = priorPreview;
++                Preferences.Default.LyricApplySelectionOnly = priorSelection;
++                Preferences.Save();
++            }
++        }
++    }
++}
+
+warning: in the working copy of 'OpenUtau.Test/Core/Util/JapaneseLyricsConverterTest.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Test/Core/Util/JapaneseLyricsConverterTest.cs b/OpenUtau.Test/Core/Util/JapaneseLyricsConverterTest.cs
+new file mode 100644
+index 0000000..9888fbd
+--- /dev/null
++++ b/OpenUtau.Test/Core/Util/JapaneseLyricsConverterTest.cs
+@@ -0,0 +1,51 @@
++using Xunit;
++
++namespace OpenUtau.Core.Util {
++    public class JapaneseLyricsConverterTest {
++        [Theory]
++        [InlineData("ka", "か")]
++        [InlineData("SHI", "し")]
++        [InlineData("kya", "きゃ")]
++        [InlineData("kitte", "きって")]
++        [InlineData("kan'i", "かんい")]
++        [InlineData("n", "ん")]
++        [InlineData("カタカナ", "かたかな")]
++        [InlineData("スーパー", "すーぱー")]
++        public void ConvertsPlainLyrics(string input, string expected) {
++            Assert.Equal(expected, JapaneseLyricsConverter.ToHiragana(input));
++        }
++
++        [Theory]
++        [InlineData("")]
++        [InlineData("R")]
++        [InlineData("br")]
++        [InlineData("AP")]
++        [InlineData("SP")]
++        [InlineData("cl")]
++        [InlineData("+~")]
++        [InlineData("-")]
++        [InlineData("a か")]
++        [InlineData("kaC4")]
++        [InlineData("ka_soft")]
++        [InlineData("가 [ka]")]
++        [InlineData("[ka]")]
++        [InlineData("사랑")]
++        [InlineData("hello")]
++        [InlineData("Hello")]
++        [InlineData("ky")]
++        public void PreservesExplicitAliasesAndNonJapaneseLyrics(string input) {
++            Assert.Equal(input, JapaneseLyricsConverter.ToHiragana(input));
++            Assert.Equal(input, JapaneseLyricsConverter.ToKatakana(input));
++        }
++
++        [Fact]
++        public void ConvertsKatakanaAndPreservesNoteBoundaries() {
++            Assert.Equal("キャ", JapaneseLyricsConverter.ToKatakana("kya"));
++            Assert.Equal("ヒラガナ", JapaneseLyricsConverter.ToKatakana("ひらがな"));
++            var converted = System.Linq.Enumerable.Select(
++                SplitLyrics.Split("ka \"kitte\" + R 가"), JapaneseLyricsConverter.ToHiragana);
++            Assert.Equal(new[] { "か", "きって", "+", "R", "가" },
++                SplitLyrics.Split(SplitLyrics.Join(converted)));
++        }
++    }
++}
+
+warning: in the working copy of 'OpenUtau.Test/Core/Util/PronunciationLyricsConverterTest.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Test/Core/Util/PronunciationLyricsConverterTest.cs b/OpenUtau.Test/Core/Util/PronunciationLyricsConverterTest.cs
+new file mode 100644
+index 0000000..a3115e2
+--- /dev/null
++++ b/OpenUtau.Test/Core/Util/PronunciationLyricsConverterTest.cs
+@@ -0,0 +1,95 @@
++using OpenUtau.Core.Ustx;
++using OpenUtau.Api;
++using OpenUtau.Plugin.Builtin;
++using Xunit;
++
++namespace OpenUtau.Core.Util {
++    public class PronunciationLyricsConverterTest {
++        [Fact]
++        public void MixedJapaneseAndKoreanNotesKeepDisplayLyrics() {
++            var track = new UTrack {
++                Phonemizer = PhonemizerFactory.Get(typeof(JapaneseVCVPhonemizer)).Create()
++            };
++            var part = new UVoicePart();
++            var prior = Preferences.Default.AutoPronunciationLyrics;
++            try {
++                Preferences.Default.AutoPronunciationLyrics = true;
++                var korean = UNote.Create();
++                korean.lyric = "사";
++                var japanese = UNote.Create();
++                japanese.lyric = "さ";
++                var romaji = UNote.Create();
++                romaji.lyric = "ka";
++                Assert.Equal(PronunciationLyricsConverter.KoreanPhonemizerName,
++                    korean.EffectivePhonemizerName(track));
++                Assert.Null(japanese.EffectivePhonemizerName(track));
++                Assert.Null(romaji.EffectivePhonemizerName(track));
++                Assert.Equal("さ", japanese.ToPhonemizerNote(track, part).lyric);
++                Assert.Equal("か", romaji.ToPhonemizerNote(track, part).lyric);
++                Assert.Equal("사", korean.lyric);
++                Assert.Equal("ka", romaji.lyric);
++                korean.PhonemizerOverride = track.Phonemizer.Name;
++                Assert.Equal(track.Phonemizer.Name, korean.EffectivePhonemizerName(track));
++            } finally {
++                Preferences.Default.AutoPronunciationLyrics = prior;
++            }
++        }
++        [Theory]
++        [InlineData("가", "が")]
++        [InlineData("나", "な")]
++        [InlineData("사랑", "さらん")]
++        [InlineData("안녕", "あんにょん")]
++        [InlineData("먹어", "もご")]
++        [InlineData("국물", "ぐんむる")]
++        public void KoreanPronunciation(string source, string expected) {
++            Assert.Equal(expected, PronunciationLyricsConverter.Convert(source));
++        }
++
++        [Fact]
++        public void LatinInputUsesJapaneseRomaji() {
++            Assert.Equal("か", PronunciationLyricsConverter.Convert("ka"));
++            Assert.Equal("し", PronunciationLyricsConverter.Convert("shi"));
++            Assert.Equal("きゃ", PronunciationLyricsConverter.Convert("kya"));
++            Assert.Equal("さらん", PronunciationLyricsConverter.Convert("사랑"));
++        }
++
++        [Theory]
++        [InlineData("R")]
++        [InlineData("br")]
++        [InlineData("AP")]
++        [InlineData("SP")]
++        [InlineData("+")]
++        [InlineData("a か")]
++        [InlineData("가 [ka]")]
++        [InlineData("ka_C4")]
++        public void AliasesAndHintsAreNotOverwritten(string source) {
++            Assert.Equal(source, PronunciationLyricsConverter.Convert(source));
++        }
++
++        [Fact]
++        public void BatchAppliesLiaisonAcrossSyllables() {
++            Assert.Equal(new[] { "も", "ご" }, PronunciationLyricsConverter.ConvertAll(new[] { "먹", "어" }));
++            Assert.Equal("が", PronunciationLyricsConverter.Convert("가"));
++        }
++
++        [Fact]
++        public void SourceAndManualCorrectionSurviveUndoCloneAndYaml() {
++            var part = new UVoicePart();
++            var note = UNote.Create();
++            note.lyric = "가";
++            var command = new ChangeNotePronunciationCommand(part, note, "ka");
++            command.Execute();
++            Assert.Equal("가", note.lyric);
++            Assert.Equal("ka", note.pronunciation);
++            Assert.Equal("가", note.ToPhonemizerNote(new UTrack(), part).lyric);
++            Assert.Equal("ka", note.ToPhonemizerNote(new UTrack(), part).phoneticHint);
++            command.Unexecute();
++            Assert.Equal("가", note.lyric);
++            Assert.Null(note.pronunciation);
++            command.Execute();
++            var restored = Yaml.DefaultDeserializer.Deserialize<UNote>(Yaml.DefaultSerializer.Serialize(note.Clone()));
++            Assert.Equal("가", restored.lyric);
++            Assert.Equal("ka", restored.pronunciation);
++        }
++    }
++}
+
+warning: in the working copy of 'OpenUtau.Test/Plugins/KoToJaTest.cs', LF will be replaced by CRLF the next time Git touches it
+diff --git a/OpenUtau.Test/Plugins/KoToJaTest.cs b/OpenUtau.Test/Plugins/KoToJaTest.cs
+new file mode 100644
+index 0000000..4c412d3
+--- /dev/null
++++ b/OpenUtau.Test/Plugins/KoToJaTest.cs
+@@ -0,0 +1,24 @@
++using OpenUtau.Api;
++using OpenUtau.Plugin.Builtin;
++using Xunit;
++
++namespace OpenUtau.Plugins {
++    public class KoToJaTest : PhonemizerTestBase {
++        public KoToJaTest(ITestOutputHelper output) : base(output) { }
++        protected override Phonemizer CreatePhonemizer() => new KOtoJAPhonemizer();
++
++        [Theory]
++        [InlineData("가", "", "が")]
++        [InlineData("가", "ka", "か")]
++        [InlineData("나", "", "な")]
++        public void KoreanOriginalAndManualHintWorkWithJapaneseCvBank(
++            string lyric, string hint, string expected) {
++            RunPhonemizeTest("ja_cv", new[] {
++                new NoteParams {
++                    lyric = lyric, hint = hint, tone = "C4",
++                    phonemes = new[] { new PhonemeParams { color = "" } },
++                },
++            }, new[] { expected });
++        }
++    }
++}
+
+diff --git a/PC-MOD.ko.md b/PC-MOD.ko.md
+new file mode 100644
+index 0000000..77c46a2
+--- /dev/null
++++ b/PC-MOD.ko.md
+@@ -0,0 +1,31 @@
++# OpenUtau PC 다국어 입력 개조판 (Windows x64 개발판)
++
++기반: https://github.com/openutau/OpenUtau (커밋 `33302b3d7cecf9ae830d4229639e06788f717b3c`). 원본 MIT 라이선스는 `LICENSE.txt`에 있습니다. 공식 배포판이 아닙니다.
++
++## 실행
++
++ZIP을 전부 압축 해제하고 `OpenUtau.exe`를 실행합니다. .NET 런타임은 포함되어 있습니다. `MSVCP140.dll` 또는 `VCRUNTIME140.dll` 오류가 나면 동봉된 `prerequisites/vc_redist.x64.exe`를 설치합니다. UTAU 음원은 별도로 준비해야 합니다.
++
++## 가사와 음소
++
++환경 설정의 **한국어·일본어 가사 원문을 유지하며 음원 발음 자동 변환**이 기본으로 켜져 있습니다. 피아노롤의 `lyric`은 입력한 그대로 남습니다.
++
++- 한국어 한 음절(예: `사`)을 입력하면, 일본어 음원용 변환기 **KO to JA**가 합성 단계에서 자동 선택됩니다. 기존 변환기가 받침·연음과 음원에 있는 CV·VCV·CVVC Alias를 처리합니다.
++- 일본어 가나(예: `さ`)는 트랙에서 선택한 일본어 음소 변환기가 처리합니다. 가타카나도 지원합니다.
++- 일본어 로마자(예: `ka`, `shi`)는 화면에는 그대로 두고, 합성 단계에만 히라가나로 전달합니다. 영어 단어의 사전 발음 변환은 지원하지 않습니다.
++- 한 파트의 음표마다 한국어와 일본어를 섞어 입력할 수 있습니다. 단일 음표에는 한국어 한 음절 또는 일본어 한 음절을 권장합니다. `사랑해`는 여러 음표에 `사 / 랑 / 해`로 넣어야 합니다.
++- 수동 발음 보정은 음표 가사 편집 상자의 **발음 보정** 칸에 입력합니다. 한국어에서 `ka`처럼 로마자로 입력하면 KO to JA 변환기의 발음 힌트로 전달됩니다. 실제 Alias는 피아노롤의 음소 편집 기능으로 직접 바꿀 수도 있습니다.
++- 수동 발음 값은 USTX에 저장되고, 음표 복사·실행 취소에 포함됩니다. UST 형식은 이 추가 필드를 보존하지 않으므로 계속 편집할 프로젝트는 USTX로 저장합니다.
++- 음원에 해당 Alias가 없는 경우 기존 OpenUtau의 음소 오류 표시로 확인할 수 있습니다. KO to JA의 유사 발음 대체는 음원에 있는 Alias에 따라 달라집니다.
++
++기존 가나 변환 버튼과 피아노롤의 가사 변환 메뉴는 명시적으로 가사를 바꿀 때 사용할 수 있습니다. 자동 합성 기능은 표시 가사를 바꾸지 않습니다.
++
++## 빌드 및 검증
++
++.NET 10 SDK로 `./build-pc.ps1`을 실행하면 테스트와 Windows x64 ZIP 제작을 수행합니다. Linux 교차 빌드 명령은 다음과 같습니다.
++
++```
++dotnet publish OpenUtau/OpenUtau.csproj -c Release -r win-x64 --self-contained true -p:EnableWindowsTargeting=true -p:PcInputMod=true -o artifacts/pc-win-x64
++```
++
++Windows 실행, 음원 청취, WAV 출력은 실제 Windows 기기에서 확인해야 합니다. `PcInputMod=true` 빌드에서는 공식 업데이트 확인을 끕니다.
+
+diff --git a/README-Windows.txt b/README-Windows.txt
+new file mode 100644
+index 0000000..0a394cc
+--- /dev/null
++++ b/README-Windows.txt
+@@ -0,0 +1,14 @@
++﻿OpenUtau PC 입력 개조판 — Windows 64비트 (Intel/AMD)
++
++1. ZIP을 폴더에 전부 압축 해제합니다.
++2. OpenUtau.exe를 실행합니다. .NET은 포함되어 있습니다.
++3. MSVCP140.dll 또는 VCRUNTIME140.dll 오류가 나오면 prerequisites/vc_redist.x64.exe를 설치하세요.
++
++자동 음소 변환은 기본적으로 켜져 있습니다.
++피아노롤에는 사 / さ / ka 등 입력한 가사가 그대로 표시됩니다.
++한국어 한 음절은 일본어 음원용 발음으로 변환됩니다. 일본어 로마자는 합성 시 가나로 전달됩니다.
++음표 가사 편집 창의 발음 보정 칸에서 표시 가사를 바꾸지 않고 발음만 수정할 수 있습니다.
++여러 음절은 여러 음표에 입력하세요. 영어 단어의 발음 변환은 지원하지 않습니다.
++음원은 별도로 설치해야 합니다. 자세한 사용법은 PC-MOD.ko.md를 참고하세요.
++
++Windows용 교차 빌드 개발판입니다. 실제 Windows 실행 및 음원 청취 검증은 아직 하지 않았습니다.
+
+diff --git a/build-pc.ps1 b/build-pc.ps1
+new file mode 100644
+index 0000000..901af6d
+--- /dev/null
++++ b/build-pc.ps1
+@@ -0,0 +1,31 @@
++param([ValidateSet('win-x64', 'win-arm64')][string]$Runtime = 'win-x64')
++$ErrorActionPreference = 'Stop'
++if ($env:OS -ne 'Windows_NT') { throw 'Run this script on Windows; native dependencies are selected by the build host.' }
++Push-Location $PSScriptRoot
++try {
++    # Upstream's Frozen tests inspect DEBUG-only members.
++    dotnet run --project OpenUtau.Test/OpenUtau.Test.csproj -c Debug
++    if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
++    dotnet publish OpenUtau/OpenUtau.csproj -c Release -r $Runtime --self-contained true -p:PcInputMod=true -o "artifacts/pc-$Runtime"
++    if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
++    # Match the upstream Windows release's DirectML native dependency.
++    $arch = $Runtime.Substring(4)
++    $directML = Join-Path $PSScriptRoot 'artifacts/DirectML'
++    New-Item -ItemType Directory -Path $directML -Force | Out-Null
++    Invoke-WebRequest 'https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/1.15.4' -OutFile "$directML/package.zip"
++    Expand-Archive "$directML/package.zip" -DestinationPath "$directML/package" -Force
++    Copy-Item "$directML/package/bin/$arch-win/DirectML.dll" "artifacts/pc-$Runtime/DirectML.dll"
++    $licenseDir = "artifacts/pc-$Runtime/licenses/DirectML"
++    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
++    Copy-Item "$directML/package/LICENSE.txt", "$directML/package/LICENSE-CODE.txt", "$directML/package/ThirdPartyNotices.txt" $licenseDir
++    $prerequisiteDir = "artifacts/pc-$Runtime/prerequisites"
++    New-Item -ItemType Directory -Path $prerequisiteDir -Force | Out-Null
++    Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.$arch.exe" -OutFile "$prerequisiteDir/vc_redist.$arch.exe"
++    Copy-Item LICENSE.txt "artifacts/pc-$Runtime/LICENSE.txt"
++    Copy-Item PC-MOD.ko.md "artifacts/pc-$Runtime/PC-MOD.ko.md"
++    Copy-Item README-Windows.txt "artifacts/pc-$Runtime/README-Windows.txt"
++    Compress-Archive -Path "artifacts/pc-$Runtime/*" -DestinationPath "artifacts/OpenUtau-PC-Mod-$Runtime.zip" -Force
++    Write-Host "Created artifacts/OpenUtau-PC-Mod-$Runtime.zip"
++} finally {
++    Pop-Location
++}
