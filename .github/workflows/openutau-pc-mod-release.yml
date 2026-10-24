@@ -1,0 +1,45 @@
+name: Build and publish OpenUtau PC mod
+on:
+  push:
+    branches: [openutau-pc-mod-20261024]
+    paths: [openutau-pc-mod.patch, .github/workflows/openutau-pc-mod-release.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Apply mod to the pinned OpenUtau source
+        shell: pwsh
+        run: |
+          git clone https://github.com/openutau/OpenUtau.git OpenUtau
+          if ($LASTEXITCODE -ne 0) { throw "Clone failed" }
+          git -C OpenUtau checkout 33302b3d7cecf9ae830d4229639e06788f717b3c
+          if ($LASTEXITCODE -ne 0) { throw "Checkout failed" }
+          git -C OpenUtau apply --check ../openutau-pc-mod.patch
+          if ($LASTEXITCODE -ne 0) { throw "Patch does not apply" }
+          git -C OpenUtau apply ../openutau-pc-mod.patch
+          if ($LASTEXITCODE -ne 0) { throw "Patch failed" }
+      - name: Build and package Windows x64
+        shell: pwsh
+        working-directory: OpenUtau
+        run: ./build-pc.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenUtau-PC-Mod-win-x64
+          path: OpenUtau/artifacts/OpenUtau-PC-Mod-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create openutau-pc-mod-2026-10-24 "OpenUtau/artifacts/OpenUtau-PC-Mod-win-x64.zip#OpenUtau-PC-Mod-win-x64.zip" --target $env:GITHUB_SHA --title "OpenUtau PC mod (Windows x64)" --notes "Korean and Japanese lyric phonemization with original lyrics kept visible. Unofficial build based on OpenUtau commit 33302b3. See PC-MOD.ko.md inside the ZIP. Windows device playback has not been manually verified."
+          if ($LASTEXITCODE -ne 0) { throw "Release upload failed" }
